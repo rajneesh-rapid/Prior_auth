@@ -78,7 +78,7 @@ export function ClaimsTable({ claims, onClaimAction, onDeleteClaim }: ClaimsTabl
               Denied Amt
             </th>
             <th className="px-4 py-4 text-center text-sm font-semibold text-foreground">
-              Documents
+              Approval Status
             </th>
             <th className="px-4 py-4 text-center text-sm font-semibold text-foreground">
               Action
@@ -134,9 +134,18 @@ export function ClaimsTable({ claims, onClaimAction, onDeleteClaim }: ClaimsTabl
                   ${claim.deniedAmt.toFixed(2)}
                 </td>
                 <td className="px-4 py-4 text-center">
-                  <div className="flex items-center justify-center gap-1 text-sm text-muted-foreground">
-                    <FileText className="h-4 w-4" />
-                    <span>{claim.documents.length}</span>
+                  <div className="flex items-center justify-center">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      claim.approvalStatus === 'Approved' 
+                        ? 'bg-green-100 text-green-800'
+                        : claim.approvalStatus === 'Partially Approved'
+                        ? 'bg-yellow-100 text-yellow-800'
+                        : claim.approvalStatus === 'Denied'
+                        ? 'bg-red-100 text-red-800'
+                        : 'bg-gray-100 text-gray-800'
+                    }`}>
+                      {claim.approvalStatus || 'Pending'}
+                    </span>
                   </div>
                 </td>
                 <td className="px-4 py-4">
