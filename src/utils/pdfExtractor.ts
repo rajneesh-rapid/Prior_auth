@@ -327,7 +327,8 @@ export async function processMultiplePDFsAsSet(
       claimId: claimId || `CLM-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`,
       patientName,
       dateOfService: claimResult.dateOfService || new Date().toISOString().split('T')[0],
-      totalAmt: claimResult.totalAmt || 0,
+      // Calculate totalAmt as the sum of all item amounts from the claim form
+      totalAmt: claimResult.items?.reduce((sum, item) => sum + (item.amount || 0), 0) || claimResult.totalAmt || 0,
       acceptedAmt,
       deniedAmt,
       items: approvalResult.items || claimResult.items || [],
