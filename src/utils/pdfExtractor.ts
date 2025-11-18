@@ -1,9 +1,9 @@
 import { Claim, ClaimDocument, ClaimItem, TimelineEntry } from '@/types/claim';
 import * as pdfjsLib from 'pdfjs-dist';
-import pdfjsClassicWorker from 'pdfjs-dist/build/pdf.worker.min.js?url';
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.js?url';
 
-// Set up the worker using local bundle (classic worker to avoid module-worker fetch issues in production)
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsClassicWorker;
+// Set up the worker using local bundle
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 interface ExtractedData {
   claimId?: string;
@@ -569,4 +569,3 @@ export function mergeClaimData(
   updatedClaims[existingClaimIndex] = existingClaim;
   return updatedClaims;
 }
-
