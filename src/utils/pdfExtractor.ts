@@ -1,8 +1,10 @@
+// In src/utils/pdfExtractor.ts
 import { Claim, ClaimDocument, ClaimItem, TimelineEntry } from '@/types/claim';
 import * as pdfjsLib from 'pdfjs-dist';
-import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.js?url';
+// Update the import to use the legacy worker
+import pdfjsWorker from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 
-// Set up the worker using local bundle
+// Set up the worker using the legacy worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 interface ExtractedData {
