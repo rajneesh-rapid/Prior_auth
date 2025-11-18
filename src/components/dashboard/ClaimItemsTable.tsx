@@ -7,11 +7,10 @@ interface ClaimItemsTableProps {
   items: ClaimItem[];
   claimId: string;
   approvalStatus?: string;
-  queryReason?: string;
-  onActionClick: () => void;
+  onActionClick: (item: ClaimItem) => void;
 }
 
-export function ClaimItemsTable({ items, claimId, approvalStatus, queryReason, onActionClick }: ClaimItemsTableProps) {
+export function ClaimItemsTable({ items, claimId, approvalStatus, onActionClick }: ClaimItemsTableProps) {
   return (
     <div className="border rounded-lg overflow-hidden bg-card">
       <table className="w-full">
@@ -41,9 +40,6 @@ export function ClaimItemsTable({ items, claimId, approvalStatus, queryReason, o
             <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">
               Approval Status
             </th>
-            <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">
-              Query Reason
-            </th>
             <th className="px-4 py-3 text-center text-sm font-semibold text-foreground">
               Action
             </th>
@@ -55,62 +51,67 @@ export function ClaimItemsTable({ items, claimId, approvalStatus, queryReason, o
               key={`${claimId}-${item.itemCode}-${index}`}
               className="border-t hover:bg-table-row-hover transition-colors"
             >
-              <td className="px-4 py-3 text-sm font-mono text-foreground">
-                {item.itemCode}
-              </td>
-              <td className="px-4 py-3 text-sm text-foreground">
-                {item.procedure}
-              </td>
-              <td className="px-4 py-3 text-sm text-right font-medium text-foreground">
-                ${item.amount.toFixed(2)}
-              </td>
-              <td className="px-4 py-3 text-sm text-right font-medium text-success">
-                ${item.approvedAmt?.toFixed(2) || '0.00'}
-              </td>
-              <td className="px-4 py-3 text-sm text-center text-foreground">
-                {item.qty}
-              </td>
-              <td className="px-4 py-3">
-                <Timeline entries={item.statusHistory} variant="status" />
-              </td>
-              <td className="px-4 py-3">
-                {item.reasonHistory && item.reasonHistory.length > 0 ? (
-                  <Timeline entries={item.reasonHistory} variant="reason" />
-                ) : (
-                  <span className="text-sm text-muted-foreground">-</span>
-                )}
-              </td>
-              <td className="px-4 py-3">
-                {approvalStatus ? (
-                  (() => {
-                    const status = approvalStatus as "Accepted" | "Denied" | "Pending" | "Under Review";
-                    if (["Accepted", "Denied", "Pending", "Under Review"].includes(approvalStatus)) {
-                      return <StatusBadge status={status} />;
-                    }
-                    return (
-                      <span className="text-sm font-medium text-foreground">
-                        {approvalStatus}
-                      </span>
-                    );
-                  })()
-                ) : (
-                  <span className="text-sm text-muted-foreground">-</span>
-                )}
-              </td>
-              <td className="px-4 py-3">
-                {queryReason ? (
-                  <span className="text-sm text-foreground whitespace-pre-wrap">
-                    {queryReason}
-                  </span>
-                ) : (
-                  <span className="text-sm text-muted-foreground">-</span>
-                )}
-              </td>
+              {(() => {
+                const latestStatusLabel =
+                  item.statusHistory?.[item.statusHistory.length - 1]?.label?.toLowerCase() || "";
+                const isApprovedStatus = latestStatusLabel === "approved";
+                const amountValue = item.amount ?? 0;
+                const approvedAmountValue = isApprovedStatus ? amountValue : 0;
+
+                return (
+                  <>
+                    <td className="px-4 py-3 text-sm font-mono text-foreground">
+                      {item.itemCode}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-foreground">
+                      {item.procedure}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-right font-medium text-foreground">
+                      ${amountValue.toFixed(2)}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-right font-medium text-success">
+                      ${approvedAmountValue.toFixed(2)}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-center text-foreground">
+                      {item.qty}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Timeline entries={item.statusHistory} variant="status" />
+                    </td>
+                    <td className="px-4 py-3">
+                      {item.reasonHistory && item.reasonHistory.length > 0 ? (
+                        <Timeline entries={item.reasonHistory} variant="reason" />
+                      ) : (
+                        <span className="text-sm text-muted-foreground">-</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const rowApproval = item.approvalStatus || approvalStatus;
+                        if (!rowApproval) {
+                          return <span className="text-sm text-muted-foreground">-</span>;
+                        }
+                        if (["Accepted", "Denied", "Pending", "Under Review", "Approved"].includes(rowApproval)) {
+                          return <StatusBadge status={rowApproval as any} />;
+                        }
+                        return (
+                          <span className="text-sm font-medium text-foreground">
+                            {rowApproval}
+                          </span>
+                        );
+                      })()}
+                    </td>
+                  </>
+                );
+              })()}
               <td className="px-4 py-3 text-center">
                 <Button
                   variant="default"
                   size="sm"
-                  onClick={onActionClick}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onActionClick(item);
+                  }}
                 >
                   Action
                 </Button>

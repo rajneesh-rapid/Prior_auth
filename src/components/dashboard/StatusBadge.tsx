@@ -2,7 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, XCircle, Clock, AlertCircle } from "lucide-react";
 
 interface StatusBadgeProps {
-  status: "Accepted" | "Denied" | "Pending" | "Under Review";
+  status: "Accepted" | "Denied" | "Pending" | "Under Review" | "Approved" | "Partially Approved";
   date?: string;
   className?: string;
 }
@@ -25,9 +25,17 @@ export function StatusBadge({ status, date, className }: StatusBadgeProps) {
       variant: "secondary" as const,
       icon: AlertCircle,
     },
+    Approved: {
+      variant: "success" as const,
+      icon: CheckCircle2,
+    },
+    "Partially Approved": {
+      variant: "secondary" as const,
+      icon: AlertCircle,
+    },
   };
 
-  const { variant, icon: Icon } = config[status];
+  const { variant, icon: Icon } = config[status] || config.Accepted;
 
   return (
     <Badge variant={variant} className={className}>

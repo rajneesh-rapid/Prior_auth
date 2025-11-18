@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Claim } from "@/types/claim";
+import { Claim, ClaimItem } from "@/types/claim";
 import { ChevronDown, ChevronRight, FileText, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ClaimItemsTable } from "./ClaimItemsTable";
@@ -22,7 +22,8 @@ interface ClaimsTableProps {
   onClaimAction: (
     claimId: string,
     action: "approve" | "query" | "deny" | "delete",
-    comment?: string
+    comment?: string,
+    itemCode?: string
   ) => void;
   onDeleteClaim: (claimId: string) => void;
 }
@@ -32,14 +33,23 @@ export function ClaimsTable({ claims, onClaimAction, onDeleteClaim }: ClaimsTabl
   const [actionModalOpen, setActionModalOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedClaim, setSelectedClaim] = useState<Claim | null>(null);
+  const [selectedItemCode, setSelectedItemCode] = useState<string | null>(null);
+  const [selectedItem, setSelectedItem] = useState<ClaimItem | null>(null);
 
   const toggleExpand = (claimId: string) => {
     setExpandedClaim(expandedClaim === claimId ? null : claimId);
   };
 
-  const handleActionClick = (claim: Claim, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleActionClick = (claim: Claim, item?: ClaimItem, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     setSelectedClaim(claim);
+    if (item) {
+      setSelectedItemCode(item.itemCode);
+      setSelectedItem(item);
+    } else {
+      setSelectedItemCode(null);
+      setSelectedItem(null);
+    }
     setActionModalOpen(true);
   };
 
@@ -134,7 +144,7 @@ export function ClaimsTable({ claims, onClaimAction, onDeleteClaim }: ClaimsTabl
                     <Button
                       variant="default"
                       size="sm"
-                      onClick={(e) => handleActionClick(claim, e)}
+                      onClick={(e) => handleActionClick(claim, undefined, e)}
                     >
                       Action
                     </Button>
@@ -165,11 +175,7 @@ export function ClaimsTable({ claims, onClaimAction, onDeleteClaim }: ClaimsTabl
                           items={claim.items}
                           claimId={claim.claimId}
                           approvalStatus={claim.approvalStatus}
-                          queryReason={claim.queryReason}
-                          onActionClick={() => {
-                            setSelectedClaim(claim);
-                            setActionModalOpen(true);
-                          }}
+                          onActionClick={(item) => handleActionClick(claim, item)}
                         />
                       </div>
                       <DocumentManager
@@ -186,6 +192,8 @@ export function ClaimsTable({ claims, onClaimAction, onDeleteClaim }: ClaimsTabl
       </table>
       <ActionModal
         claim={selectedClaim}
+        item={selectedItem}
+        itemCode={selectedItemCode}
         open={actionModalOpen}
         onOpenChange={setActionModalOpen}
         onSubmitAction={onClaimAction}

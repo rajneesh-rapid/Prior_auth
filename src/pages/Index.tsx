@@ -40,7 +40,8 @@ const Index = () => {
   const handleClaimAction = (
     claimId: string,
     action: "approve" | "query" | "deny" | "delete",
-    comment?: string
+    comment?: string,
+    itemCode?: string
   ) => {
     if (action === 'delete') {
       handleDeleteClaim(claimId);
@@ -90,8 +91,12 @@ const Index = () => {
           statusHistory: [...claim.statusHistory, newStatusEntry],
         };
 
-        // Update item-level histories for all items
+        // Update item-level histories
         updatedClaim.items = updatedClaim.items.map((item) => {
+          if (itemCode && item.itemCode !== itemCode) {
+            return item;
+          }
+
           const updatedItem = {
             ...item,
             statusHistory: [...item.statusHistory, newStatusEntry],
@@ -104,8 +109,26 @@ const Index = () => {
             ];
           }
 
+          if (action === "approve") {
+            updatedItem.approvedAmt = updatedItem.amount;
+          } else if (action === "query" || action === "deny") {
+            updatedItem.approvedAmt = 0;
+          }
+
           return updatedItem;
         });
+
+        const acceptedAmt = updatedClaim.items.reduce(
+          (sum, current) => sum + (current.approvedAmt || 0),
+          0
+        );
+        const totalAmt = updatedClaim.items.reduce(
+          (sum, current) => sum + (current.amount || 0),
+          0
+        );
+
+        updatedClaim.acceptedAmt = acceptedAmt;
+        updatedClaim.deniedAmt = Math.max(totalAmt - acceptedAmt, 0);
 
         return updatedClaim;
       })

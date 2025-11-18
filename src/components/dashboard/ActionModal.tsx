@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Claim } from "@/types/claim";
+import { Claim, ClaimItem } from "@/types/claim";
 import {
   Dialog,
   DialogContent,
@@ -16,12 +16,15 @@ import { useToast } from "@/hooks/use-toast";
 
 interface ActionModalProps {
   claim: Claim | null;
+  item?: ClaimItem | null;
+  itemCode?: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmitAction: (
     claimId: string,
     action: "approve" | "query" | "deny",
-    comment?: string
+    comment?: string,
+    itemCode?: string
   ) => void;
 }
 
@@ -29,6 +32,8 @@ type ActionType = "approve" | "query" | "deny" | null;
 
 export function ActionModal({
   claim,
+  item,
+  itemCode,
   open,
   onOpenChange,
   onSubmitAction,
@@ -55,7 +60,13 @@ export function ActionModal({
     }
 
     // Submit the action to update the claim
-    onSubmitAction(claim.claimId, selectedAction, comment.trim() || undefined);
+    const targetItemCode = itemCode || item?.itemCode;
+    onSubmitAction(
+      claim.claimId,
+      selectedAction,
+      comment.trim() || undefined,
+      targetItemCode || undefined
+    );
 
     toast({
       title: "Action submitted",

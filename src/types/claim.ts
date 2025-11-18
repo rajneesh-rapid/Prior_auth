@@ -11,8 +11,12 @@ export interface ClaimItem {
   amount: number;
   approvedAmt?: number;
   qty: number;
+  status?: string; // Extracted per-item status (e.g., Approved/Denied)
   statusHistory: TimelineEntry[];
   reasonHistory?: TimelineEntry[];
+  reason?: string; // For item-specific denial/rejection reasons
+  approvalStatus?: string; // Individual item approval status
+  queryReason?: string; // Query reason from the approval document
 }
 
 export interface Claim {

@@ -72,47 +72,80 @@ async function extractDataWithOpenAI(file: File, documentType: string, apiKey?: 
 Extract the following fields if present in the document:
 - Claim ID (claimId): Look for fields labeled "Medical Record No:", "Medical Record No", "Guest File No.:", "Guest File No.", or patterns like CLM-YYYY-NNN, claim numbers, member numbers, etc.
 - Patient Name (patientName): Full name of the patient
-- Date of Service (dateOfService): In YYYY-MM-DD format
-- Total Amount (totalAmt): Total claim amount in dollars (number only)
-- Accepted Amount (acceptedAmt): Approved/accepted amount in dollars (number only) - For APPROVAL documents: Look at the table with "Approved Amount" column (shown in green). SUM all values in this column. Even if all values are $0.00, return the sum (0). CRITICAL: Always extract this value from the approval table, do not leave it blank.
-- Denied Amount (deniedAmt): Denied/rejected amount in dollars (number only) - look for "Disallowed Amt" or "Denied Amount" totals
-- Status (status): Determine based on actual approval data:
-  * For APPROVAL documents: Look at the "Approval Status" column in the table. Check what status is shown (e.g., "Approved", "Partially Approved", "Denied"). If all rows show "Approved", use "Approved". If mix of statuses, use "Partially Approved". If all show "Denied", use "Denied". CRITICAL: Extract from the "Approval Status" column, not from other status fields.
-  * For CLAIM documents: Use "Submitted" or "Pending"
-  * For DENIAL documents: Use "Denied"
-  * For QUERY documents: Use "Query Raised"
-  * Do NOT default to "Approved" - analyze the actual data in the document
-- Reason (reason): Any explanation, comments, or notes about the claim. For APPROVAL documents, look for overall disallowance/denial reasons or notes.
-- Items (items): Array of line items with structure {itemCode: string, procedure: string, amount: number, approvedAmt: number, qty: number}
-  * For APPROVAL documents: Extract ALL items from the approval table. For EACH row:
-    - itemCode: Use "Item Code" column value
-    - procedure: Use "Procedure" or description column value
-    - amount: Use "Amount" column value (the requested/claimed amount)
-    - approvedAmt: Use "Approved Amount" column value (the green amount approved for this specific item) - CRITICAL: Extract the approved amount for EACH individual item, not just the total
-    - qty: Use "Qty" column value
-  * Include ALL items from the table, even if approvedAmt is $0.00 for that item.
+- Date of Service (dateOfService): In YYYY-MM-DD format (e.g., "14/10/2025" -> "2025-10-14")
+- Total Amount (totalAmt): Sum of all "Amount" values from the table (number only, remove $ and commas)
+- Accepted Amount (acceptedAmt): Sum of all "Approved Amount" / "Apprd Amt." values from the table (number only, remove $ and commas)
+- Denied Amount (deniedAmt): Total Amount minus Accepted Amount (number only)
+- Status (status): Determine the true overall status by analyzing the table (e.g., if any row is Denied while others Approved, return "Partially Approved"). Do NOT assume the status.
+- Reason (reason): Use the overall remarks or the dominant text from the "Disallowance / Denial Reason" (or similarly named) section. If that section is blank, leave the reason blank. Only fall back to other remarks when the disallowance column does not exist.
+- Query Reason (queryReason): Use the overall "Query Reason" text or remarks related to queries. If the value is just "-" or empty, return an empty string ("").
+- Items (items): Array of line items with structure {itemCode: string, procedure: string, amount: number, approvedAmt: number, qty: number, status: string, approvalStatus: string, reason: string, queryReason: string}
+  * For each row in the table, extract:
+    - itemCode: The value under "Item Code" (e.g., "LAB011202")
+    - procedure: The full procedure name (e.g., "C-Reactive Protein (Quantitative)")
+    - amount: The value under "Amount" (convert to number, remove $ and commas, e.g., "$115.00" -> 115.00)
+    - approvedAmt: The value under "Approved Amount", "Apprd Amt.", or any column that represents the approved monetary value for that row. Convert to a number, remove $ and commas, and NEVER leave it at 0 unless the table cell is actually 0. This field must match the PDF table exactly.
+    - qty: The value under "Qty" (convert to number, e.g., 1)
+    - status: The exact status text from the "Status" column (ignore any preceding date; e.g., "23/09/2025 Partially Approved" -> "Partially Approved")
+    - approvalStatus: The exact text from the "Approval Status" column (ignore any preceding date)
+    - reason: The text from the "Disallowance / Denial Reason" (or "Reason / Notes" if that's the column title) for that specific row. If the column entry is blank or just "-", leave it as an empty string. Do NOT invent or reuse reasons from other rows.
+    - queryReason: The text from the "Query Reason" column for that row. If the value is just "-" or empty, use an empty string (""). If no column exists, leave empty.
+  * Include ALL items from the table
+  * If any field is missing, leave it as empty string or 0 for numbers
 
-Based on the document type "${documentType}":
-- CLAIM documents typically show "Submitted" or "Pending" status
-- APPROVAL documents: Analyze the approval table to determine actual status - check Approved Qty, Apprd Amt, Disallowed Amt, and Disallowance/Denial Reason columns
-- DENIAL documents show "Denied" status with reasons
-- QUERY documents show "Query Raised" status with questions/issues
+For APPROVAL documents:
+- Determine the overall status by looking at the distribution of row statuses (all Approved -> "Approved", mix -> "Partially Approved", all Denied -> "Denied").
+- Pull the overall reason from the document remarks or from the most common "Reason / Notes" / "Disallowance" text.
+- Preserve each row's own status, approvalStatus, reason, and queryReason exactly as written.
+- When a column contains a date immediately before the status (e.g., "23/09/2025Partially Approved"), strip the date for the status field but keep the status text.
 
 Return ONLY a valid JSON object with these exact field names. If a field is not found, omit it completely.
 
 Example format:
 {
-  "claimId": "CLM-2024-001",
+  "claimId": "CLM-2023-12345",
   "patientName": "John Doe",
-  "dateOfService": "2024-01-15",
-  "totalAmt": 1500.00,
-  "acceptedAmt": 1200.00,
-  "deniedAmt": 300.00,
+  "dateOfService": "2025-10-14",
+  "totalAmt": 2265.00,
+  "acceptedAmt": 415.00,
+  "deniedAmt": 1850.00,
   "status": "Partially Approved",
-  "reason": "Some items approved, others denied due to duplicate service within time frame",
+  "reason": "Payment is included in the allowance for another service; CPT activity repeated within set time frame of 1 year",
+  "queryReason": "", // Use empty string if the query reason is "-"
   "items": [
-    {"itemCode": "LAB01245", "procedure": "Hemoglobin A1c", "amount": 225.00, "approvedAmt": 225.00, "qty": 1},
-    {"itemCode": "LAB00231", "procedure": "Liver Enzymes Profile", "amount": 240.00, "approvedAmt": 0.00, "qty": 0}
+    {
+      "itemCode": "LAB011202",
+      "procedure": "C-Reactive Protein (Quantitative)",
+      "amount": 115.00,
+      "approvedAmt": 0.00,
+      "qty": 1,
+      "status": "Submitted", // Example: use the actual text from the "Status" column
+      "approvalStatus": "Partially Approved", // Example: use the actual text from the "Approval Status" column
+      "reason": "Payment is included in the allowance for another service",
+      "queryReason": "" // Use empty string if the query reason is "-"
+    },
+    {
+      "itemCode": "LAB00225",
+      "procedure": "Lipid Profile (TC, Trig, HDL, LDL)",
+      "amount": 330.00,
+      "approvedAmt": 0.00,
+      "qty": 1,
+      "status": "Submitted",
+      "approvalStatus": "Partially Approved",
+      "reason": "CPT ACTIVITY REPEATED WITHIN SET TIME FRAME OF 1 Year",
+      "queryReason": "" // Use empty string if the query reason is "-"
+    },
+    {
+      "itemCode": "LAB00245",
+      "procedure": "Liver Profile 2 (ALT, AST, PT)",
+      "amount": 240.00,
+      "approvedAmt": 240.00,
+      "qty": 1,
+      "status": "Submitted",
+      "approvalStatus": "Approved",
+      "reason": "Approved in full",
+      "queryReason": "" // Use empty string if the query reason is "-"
+    }
   ]
 }`;
 
@@ -160,25 +193,69 @@ Example format:
     }
 
     const extractedData: ExtractedData = JSON.parse(content);
+
+    const normalizeCurrencyValue = (value: unknown): number => {
+      if (typeof value === 'number') return value;
+      if (typeof value === 'string') {
+        const cleaned = value.replace(/[^0-9.-]/g, '').trim();
+        const parsed = parseFloat(cleaned);
+        return isNaN(parsed) ? 0 : parsed;
+      }
+      return 0;
+    };
     
-    // Ensure items have proper structure with status history
+    // Ensure items have proper structure with item-specific history data
     if (extractedData.items) {
-      extractedData.items = extractedData.items.map(item => ({
-        ...item,
-        statusHistory: [
-          {
-            date: extractedData.dateOfService || new Date().toISOString(),
-            label: extractedData.status || 'Submitted',
+      const defaultStatus = extractedData.status || 'Submitted';
+      const defaultDate = extractedData.dateOfService || new Date().toISOString();
+
+      extractedData.items = extractedData.items.map(item => {
+        const normalizedReason = (() => {
+          const value = (item.reason ?? extractedData.reason ?? '').trim();
+          return value && value !== '-' ? value : '';
+        })();
+        const derivedStatus = normalizedReason ? 'Denied' : 'Approved';
+        const normalizedQueryReason = (() => {
+          const value = (item.queryReason ?? '').trim();
+          return value && value !== '-' ? value : '';
+        })();
+        const normalizedApprovalStatus = (() => {
+          const value = (item.approvalStatus ?? '').trim();
+          if (derivedStatus === 'Approved') {
+            return 'Approved';
           }
-        ],
-        reasonHistory: extractedData.reason ? [
-          {
-            date: new Date().toISOString(),
-            label: extractedData.status || 'Submitted',
-            comment: extractedData.reason,
+          if (value && value !== '-') {
+            return value;
           }
-        ] : undefined,
-      }));
+          return item.approvalStatus || derivedStatus;
+        })();
+        const normalizedAmountRaw = normalizeCurrencyValue(item.amount);
+        const normalizedApprovedAmount = normalizeCurrencyValue(item.approvedAmt);
+        const normalizedAmount = normalizedAmountRaw > 0 ? normalizedAmountRaw : normalizedApprovedAmount;
+
+        return {
+          ...item,
+          amount: normalizedAmount,
+          approvedAmt: normalizedApprovedAmount,
+          reason: normalizedReason,
+          queryReason: normalizedQueryReason,
+          approvalStatus: normalizedApprovalStatus,
+          statusHistory: [
+            {
+              date: defaultDate,
+              label: derivedStatus,
+            }
+          ],
+          reasonHistory: normalizedReason ? [
+            {
+              date: new Date().toISOString(),
+              label: derivedStatus,
+              comment: normalizedReason,
+            }
+          ] : undefined,
+          status: derivedStatus,
+        } as ClaimItem;
+      });
     }
     
     return extractedData;
@@ -198,6 +275,31 @@ function getDocumentType(filename: string): 'CLAIM' | 'APPROVAL' | 'QUERY' | 'DE
   if (lower.includes('query')) return 'QUERY';
   if (lower.includes('claim')) return 'CLAIM';
   return 'OTHER';
+}
+
+function mergeItemsFromSources(claimItems?: ClaimItem[], approvalItems?: ClaimItem[]): ClaimItem[] {
+  if (approvalItems && approvalItems.length > 0) {
+    const claimMap = new Map<string, ClaimItem>();
+
+    (claimItems || []).forEach(item => {
+      if (item.itemCode) {
+        claimMap.set(item.itemCode.trim().toUpperCase(), item);
+      }
+    });
+
+    return approvalItems.map(item => {
+      const key = item.itemCode?.trim().toUpperCase();
+      const claimMatch = key ? claimMap.get(key) : undefined;
+
+      return {
+        ...item,
+        amount: claimMatch?.amount ?? item.amount ?? 0,
+        qty: claimMatch?.qty ?? item.qty ?? 0,
+      };
+    });
+  }
+
+  return claimItems || [];
 }
 
 /**
@@ -331,7 +433,7 @@ export async function processMultiplePDFsAsSet(
       totalAmt: claimResult.items?.reduce((sum, item) => sum + (item.amount || 0), 0) || claimResult.totalAmt || 0,
       acceptedAmt,
       deniedAmt,
-      items: approvalResult.items || claimResult.items || [],
+      items: mergeItemsFromSources(claimResult.items, approvalResult.items),
       approvalStatus: approvalResult.status,
       approvalReason: approvalResult.reason,
       queryReason: queryResult.reason || '',
