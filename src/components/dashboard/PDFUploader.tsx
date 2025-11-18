@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Upload, FileText, X, Loader2, Key, CheckCircle, AlertCircle } from 'lucide-react';
+import { Key, Upload, FileText, CheckCircle, X, AlertCircle, Plus, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { processMultiplePDFsAsSet } from '@/utils/pdfExtractor';
 import { Claim, ClaimDocument, ClaimItem, TimelineEntry } from '@/types/claim';
@@ -29,6 +29,7 @@ export function PDFUploader({ onDataExtracted, currentClaims }: PDFUploaderProps
   });
   const [isProcessing, setIsProcessing] = useState(false);
   const [secretKey, setSecretKey] = useState('');
+  const [isUploaderOpen, setIsUploaderOpen] = useState(false);
   
   const claimFileInputRef = useRef<HTMLInputElement>(null);
   const approvalFileInputRef = useRef<HTMLInputElement>(null);
@@ -342,8 +343,23 @@ export function PDFUploader({ onDataExtracted, currentClaims }: PDFUploaderProps
   const allFilesUploaded = pdfSet.claim && pdfSet.approval && pdfSet.query;
 
   return (
-    <Card className="p-6">
-      <div className="space-y-6">
+    <Card className="p-4">
+      {/* Toggle Button */}
+      <Button
+        onClick={() => setIsUploaderOpen(!isUploaderOpen)}
+        className="w-full justify-between"
+        variant="outline"
+      >
+        <div className="flex items-center gap-2">
+          <Plus className="h-4 w-4" />
+          Create Claim
+        </div>
+        {isUploaderOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+      </Button>
+
+      {/* Collapsible Content */}
+      {isUploaderOpen && (
+        <div className="space-y-4 pt-4 border-t">
         {/* API Key Input */}
         <div className="space-y-2">
           <Label htmlFor="apiKey" className="flex items-center gap-2">
@@ -442,6 +458,7 @@ export function PDFUploader({ onDataExtracted, currentClaims }: PDFUploaderProps
           </Button>
         </div>
       </div>
+      )}
     </Card>
   );
 }
