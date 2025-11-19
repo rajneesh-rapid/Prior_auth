@@ -340,29 +340,6 @@ try {
         const itemQueryReason = (item.queryReason?.trim() || claimLevelQueryReason || '').trim();
         const hasItemQuery = itemQueryReason && itemQueryReason !== '-' && itemQueryReason.length > 0;
         
-        // Status determination priority:
-        // 1. If reason/disallowance exists → Denied
-        // 2. If queryReason exists → Query Raised
-        // 3. If additionalInfoRequired exists (and no reason/queryReason) → Query Raised
-        // 4. Otherwise → Approved
-        let derivedStatus: string;
-        if (normalizedReason && normalizedReason.length > 0) {
-          // PRIORITY 1: Reason/Disallowance exists → Denied
-          derivedStatus = 'Denied';
-          console.log(`[PDF_EXTRACTOR] Item ${index}: Setting status to Denied (reason exists: "${normalizedReason.substring(0, 50)}...")`);
-        } else if (hasItemQuery || hasClaimLevelQuery) {
-          // PRIORITY 2: QueryReason exists → Query Raised
-          derivedStatus = 'Query Raised';
-          console.log(`[PDF_EXTRACTOR] Item ${index}: Setting status to Query Raised (queryReason exists)`);
-        } else if (shouldUseAdditionalInfo) {
-          // PRIORITY 3: additionalInfoRequired exists (fallback only if no reason/queryReason) → Query Raised
-          derivedStatus = 'Query Raised';
-          console.log(`[PDF_EXTRACTOR] Item ${index}: Setting status to Query Raised (additionalInfoRequired fallback)`);
-        } else {
-          // PRIORITY 4: No reason, queryReason, or additionalInfo → Approved
-          derivedStatus = 'Approved';
-        }
-        
         // Normalize queryReason: prioritize item-level, then claim-level queryReason, then additionalInfoRequired (fallback only)
         const normalizedQueryReason = (() => {
           const itemQR = (item.queryReason ?? '').trim();
@@ -381,44 +358,65 @@ try {
           }
           return '';
         })();
-        const normalizedApprovalStatus = (() => {
-          const value = (item.approvalStatus ?? '').trim();
-          // If there's a query, approval status should reflect that
-          if (derivedStatus === 'Query Raised') {
-            return 'Query Raised';
-          }
-          if (derivedStatus === 'Approved') {
-            return 'Approved';
-          }
-          if (value && value !== '-') {
-            return value;
-          }
-          return item.approvalStatus || derivedStatus;
-        })();
+        
         const normalizedAmountRaw = normalizeCurrencyValue(item.amount);
         const normalizedApprovedAmount = normalizeCurrencyValue(item.approvedAmt);
         const normalizedAmount = normalizedAmountRaw > 0 ? normalizedAmountRaw : normalizedApprovedAmount;
 
-        // CRITICAL: Re-evaluate status based on approvedAmt - if approvedAmt > 0 and no reason, should be Approved
-        let finalStatus = derivedStatus;
-        if (normalizedApprovedAmount > 0 && !normalizedReason && !normalizedQueryReason && !shouldUseAdditionalInfo) {
-          // If item has approved amount > 0 and no reason/query, it should be Approved
+        // CRITICAL: Status determination - approvedAmt takes PRIORITY
+        // If approvedAmt > 0, item is Approved (PDF shows approval, regardless of reason)
+        // Only if approvedAmt === 0, then check reason/queryReason
+        let finalStatus: string;
+        let finalReason = normalizedReason;
+        let finalQueryReason = normalizedQueryReason;
+        
+        if (normalizedApprovedAmount > 0) {
+          // PRIORITY 1: If approvedAmt > 0, item is Approved (PDF shows it was approved)
           finalStatus = 'Approved';
-          console.log(`[PDF_EXTRACTOR] Item ${index}: Overriding status to Approved (approvedAmt=${normalizedApprovedAmount} > 0, no reason/query)`);
-        } else if (normalizedApprovedAmount === 0 && normalizedReason) {
-          // If approvedAmt is 0 and there's a reason, it's Denied
+          // Clear reason and queryReason for approved items
+          finalReason = '';
+          finalQueryReason = '';
+          console.log(`[PDF_EXTRACTOR] Item ${index}: Setting status to Approved (approvedAmt=${normalizedApprovedAmount} > 0, clearing reason/queryReason)`);
+        } else if (normalizedApprovedAmount === 0 && normalizedReason && normalizedReason.length > 0) {
+          // PRIORITY 2: If approvedAmt is 0 and reason exists → Denied
           finalStatus = 'Denied';
-        } else if (normalizedApprovedAmount === 0 && !normalizedReason && (normalizedQueryReason || shouldUseAdditionalInfo)) {
-          // If approvedAmt is 0 and there's a queryReason but no denial reason, it's Query Raised
+          console.log(`[PDF_EXTRACTOR] Item ${index}: Setting status to Denied (approvedAmt=0, reason exists: "${normalizedReason.substring(0, 50)}...")`);
+        } else if (normalizedApprovedAmount === 0 && (hasItemQuery || hasClaimLevelQuery || shouldUseAdditionalInfo)) {
+          // PRIORITY 3: If approvedAmt is 0 and queryReason exists → Query Raised
           finalStatus = 'Query Raised';
+          console.log(`[PDF_EXTRACTOR] Item ${index}: Setting status to Query Raised (approvedAmt=0, queryReason exists)`);
+        } else {
+          // PRIORITY 4: Default to Approved if no issues
+          finalStatus = 'Approved';
+          // Clear reason for approved items
+          finalReason = '';
+          finalQueryReason = '';
         }
+        
+        const normalizedApprovalStatus = (() => {
+          // Approval status should match final status
+          if (finalStatus === 'Query Raised') {
+            return 'Query Raised';
+          }
+          if (finalStatus === 'Approved') {
+            return 'Approved';
+          }
+          if (finalStatus === 'Denied') {
+            return 'Denied';
+          }
+          const value = (item.approvalStatus ?? '').trim();
+          if (value && value !== '-') {
+            return value;
+          }
+          return finalStatus;
+        })();
 
         return {
           ...item,
           amount: normalizedAmount,
           approvedAmt: normalizedApprovedAmount,
-          reason: normalizedReason,
-          queryReason: normalizedQueryReason,
+          reason: finalReason,
+          queryReason: finalQueryReason,
           approvalStatus: finalStatus === 'Approved' ? 'Approved' : (finalStatus === 'Denied' ? 'Denied' : normalizedApprovalStatus),
           statusHistory: [
             {
@@ -426,11 +424,11 @@ try {
               label: finalStatus,
             }
           ],
-          reasonHistory: (normalizedReason || normalizedQueryReason) ? [
+          reasonHistory: (finalReason || finalQueryReason) ? [
             {
               date: new Date().toISOString(),
               label: finalStatus,
-              comment: normalizedQueryReason || normalizedReason,
+              comment: finalQueryReason || finalReason,
             }
           ] : undefined,
           status: finalStatus,
@@ -649,36 +647,45 @@ export async function processClaimAndQueryPDFs(
         // Get approvedAmt for status determination
         const itemApprovedAmt = normalizeCurrencyValue(item.approvedAmt);
         
-        // Status priority: reason/disallowance → queryReason → additionalInfoRequired → Approved (based on approvedAmt)
+        // CRITICAL: Status priority - approvedAmt takes PRIORITY
+        // If approvedAmt > 0, item is Approved (PDF shows approval, regardless of reason)
+        // Only if approvedAmt === 0, then check reason/queryReason
+        let finalReasonValue = finalReason;
+        let finalQueryReasonValue = finalQueryReason;
+        
         const finalStatus = (() => {
-          if (finalReason && finalReason.length > 0) {
-            return 'Denied'; // PRIORITY 1: Reason/Disallowance exists
-          }
-          if (finalQueryReason && finalQueryReason.length > 0) {
-            return 'Query Raised'; // PRIORITY 2: QueryReason exists
-          }
-          if (hasAdditionalInfo) {
-            return 'Query Raised'; // PRIORITY 3: additionalInfoRequired (fallback)
-          }
-          // PRIORITY 4: Check approvedAmt - if > 0 and no reason/query, it's Approved
-          if (itemApprovedAmt > 0 && !finalReason && !finalQueryReason) {
+          if (itemApprovedAmt > 0) {
+            // PRIORITY 1: If approvedAmt > 0, item is Approved (PDF shows it was approved)
+            // Clear reason and queryReason for approved items
+            finalReasonValue = '';
+            finalQueryReasonValue = '';
+            return 'Approved';
+          } else if (itemApprovedAmt === 0 && finalReason && finalReason.length > 0) {
+            // PRIORITY 2: If approvedAmt is 0 and reason exists → Denied
+            return 'Denied';
+          } else if (itemApprovedAmt === 0 && finalQueryReason && finalQueryReason.length > 0) {
+            // PRIORITY 3: If approvedAmt is 0 and queryReason exists → Query Raised
+            return 'Query Raised';
+          } else if (itemApprovedAmt === 0 && hasAdditionalInfo) {
+            // PRIORITY 4: If approvedAmt is 0 and additionalInfoRequired exists → Query Raised
+            return 'Query Raised';
+          } else {
+            // PRIORITY 5: Default to Approved if no issues
+            // Clear reason for approved items
+            finalReasonValue = '';
+            finalQueryReasonValue = '';
             return 'Approved';
           }
-          // If approvedAmt is 0, check if there's a status from item
-          if (itemApprovedAmt === 0 && item.status) {
-            return item.status;
-          }
-          return 'Approved'; // Default
         })();
         
         const finalApprovalStatus = finalStatus;
         
-        console.log(`[PDF_EXTRACTOR] Item ${item.itemCode}: reason="${finalReason}", queryReason="${finalQueryReason}", status="${finalStatus}"`);
+        console.log(`[PDF_EXTRACTOR] Item ${item.itemCode}: reason="${finalReasonValue}", queryReason="${finalQueryReasonValue}", status="${finalStatus}"`);
         
         return {
           ...item,
-          queryReason: finalQueryReason,
-          reason: finalReason,
+          queryReason: finalQueryReasonValue,
+          reason: finalReasonValue,
           status: finalStatus,
           approvalStatus: finalApprovalStatus,
           // Update statusHistory if status changed
@@ -694,13 +701,13 @@ export async function processClaimAndQueryPDFs(
               label: finalStatus,
             }
           ],
-          // Update reasonHistory with queryReason
-          reasonHistory: finalQueryReason ? [
+          // Update reasonHistory with queryReason (only if not empty)
+          reasonHistory: (finalReasonValue || finalQueryReasonValue) ? [
             ...(item.reasonHistory || []),
             {
               date: new Date().toISOString(),
               label: finalStatus,
-              comment: finalQueryReason,
+              comment: finalQueryReasonValue || finalReasonValue,
             }
           ] : item.reasonHistory,
         };

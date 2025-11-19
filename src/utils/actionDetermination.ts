@@ -162,20 +162,7 @@ function determineActionsFromReasonFallback(
     "provide evidence",
     "share the results",
     "lab result",
-    "test result",
-    "provide",
-    "supportive",
-    "investigation report",
-    "supportive investigation",
-    "investigation",
-    "report",
-    "provide report",
-    "provide supportive",
-    "kindly provide",
-    "please provide",
-    "share",
-    "send",
-    "submit"
+    "test result"
   ];
 
   const hasDocumentKeywords = documentKeywords.some(keyword => lowerReason.includes(keyword));
@@ -257,15 +244,11 @@ There are TWO key actions available:
      * "same were done previously, please share the results"
      * "previous test results needed"
      * "provide previous lab result"
-     * "provide supportive investigation report" (needs investigation report document)
-     * "kindly provide supportive investigation" (needs investigation document)
-     * "please provide report" (needs report document)
-     * "provide investigation report" (needs investigation report document)
      * "CPT ACTIVITY REPEATED WITHIN SET TIME FRAME" (needs evidence of previous activity)
      * "CPT activity repeated within set time frame of 1 Year" (needs documentation of previous service)
      * "Payment is included in the allowance for another service" (needs documentation/proof)
      * "Payment already made for same/similar service within set time frame" (needs evidence)
-     * Any mention of "previously", "before", "previous", "past", "evidence", "documentation", "records", "report", "investigation", "provide", "share", "send"
+     * Any mention of "previously", "before", "previous", "past", "evidence", "documentation", "records"
 
 2. "sendToDoctor" - Use when the payor/insurance is asking for CLINICAL CLARITY or MEDICAL JUSTIFICATION from the doctor:
    - Why the service was performed (clinical reason)
@@ -286,8 +269,6 @@ There are TWO key actions available:
 
 Decision Rules:
 - If query mentions "previous", "before", "previously", "evidence", "documentation", "records", "CPT repeated", "time frame" → "requestDocuments" (medical records team)
-- If query asks to "provide", "share", "send", "submit" any report, document, investigation, or test result → "requestDocuments" (medical records team)
-- If query mentions "report", "investigation report", "supportive investigation", "investigation", "supportive" → "requestDocuments" (medical records team)
 - If query mentions "clinical", "medical necessity", "why necessary", "justification", "not payable based on clinical" → "sendToDoctor" (doctor)
 - If query asks "why" the service was done or why it's necessary → "sendToDoctor"
 - If query asks for proof/evidence of past services → "requestDocuments"
@@ -316,9 +297,6 @@ CRITICAL INSTRUCTIONS:
 - You MUST return at least one action if the query reason contains ANY denial, query, or actionable text
 - If the query reason mentions "clinical information", "medical necessity", "not payable based on clinical", "clinical justification", or asks why a service was necessary → you MUST return "sendToDoctor" action
 - If the query reason mentions "previous", "before", "previously", "evidence", "documentation", "records", "CPT repeated", "time frame" → you MUST return "requestDocuments" action
-- If the query reason asks to "provide", "share", "send", "submit" any report, document, investigation, or asks "provide supportive investigation report" → you MUST return "requestDocuments" action
-- If the query reason mentions "report", "investigation report", "supportive investigation", "investigation", "supportive" → you MUST return "requestDocuments" action
-- "provide supportive investigation report" → MUST return "requestDocuments" (this is asking for an investigation report document)
 - "Service is not payable based on the given clinical information" → MUST return "sendToDoctor" (this is asking for clinical clarity)
 - "CPT ACTIVITY REPEATED WITHIN SET TIME FRAME" → MUST return "requestDocuments" (this is asking for evidence of previous activity)
 - Only return empty array if the query reason is completely blank or contains no actionable information
