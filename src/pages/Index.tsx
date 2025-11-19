@@ -39,7 +39,7 @@ const Index = () => {
 
   const handleClaimAction = (
     claimId: string,
-    action: "approve" | "query" | "deny" | "delete",
+    action: "approve" | "query" | "deny" | "delete" | "sendToDoctor" | "sendToMedicalBoard" | "requestDocuments",
     comment?: string,
     itemCode?: string
   ) => {
@@ -66,6 +66,15 @@ const Index = () => {
           case "deny":
             statusLabel = "Denied";
             break;
+          case "sendToDoctor":
+            statusLabel = "Sent to Doctor";
+            break;
+          case "sendToMedicalBoard":
+            statusLabel = "Sent to Medical Board";
+            break;
+          case "requestDocuments":
+            statusLabel = "Documents Requested";
+            break;
         }
 
         const newStatusEntry: TimelineEntry = {
@@ -76,10 +85,14 @@ const Index = () => {
 
         // Create reason entry if there's a comment
         const newReasonEntry: TimelineEntry | null =
-          comment && (action === "query" || action === "deny")
+          comment && (action === "query" || action === "deny" || action === "sendToDoctor" || action === "sendToMedicalBoard" || action === "requestDocuments")
             ? {
                 date: now,
-                label: action === "query" ? "Query Raised" : "Denial Reason",
+                label: action === "query" ? "Query Raised" : 
+                       action === "deny" ? "Denial Reason" :
+                       action === "sendToDoctor" ? "Sent to Doctor" :
+                       action === "sendToMedicalBoard" ? "Sent to Medical Board" :
+                       "Documents Requested",
                 user,
                 comment,
               }

@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Key, Upload, FileText, CheckCircle, X, AlertCircle, Plus, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { processMultiplePDFsAsSet } from '@/utils/pdfExtractor';
+import { processClaimAndQueryPDFs } from '@/utils/pdfExtractor';
 import { Claim, ClaimDocument, ClaimItem, TimelineEntry } from '@/types/claim';
 
 interface PDFUploaderProps {
@@ -13,18 +13,16 @@ interface PDFUploaderProps {
   currentClaims: Claim[];
 }
 
-type PDFType = 'claim' | 'approval' | 'query';
+type PDFType = 'claim' | 'query';
 
 interface UploadedPDFSet {
   claim: File | null;
-  approval: File | null;
   query: File | null;
 }
 
 export function PDFUploader({ onDataExtracted, currentClaims }: PDFUploaderProps) {
   const [pdfSet, setPdfSet] = useState<UploadedPDFSet>({
     claim: null,
-    approval: null,
     query: null,
   });
   const [isProcessing, setIsProcessing] = useState(false);
@@ -32,7 +30,6 @@ export function PDFUploader({ onDataExtracted, currentClaims }: PDFUploaderProps
   const [isUploaderOpen, setIsUploaderOpen] = useState(false);
   
   const claimFileInputRef = useRef<HTMLInputElement>(null);
-  const approvalFileInputRef = useRef<HTMLInputElement>(null);
   const queryFileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = (type: PDFType, event: React.ChangeEvent<HTMLInputElement>) => {
@@ -63,7 +60,6 @@ export function PDFUploader({ onDataExtracted, currentClaims }: PDFUploaderProps
   const clearAll = () => {
     setPdfSet({
       claim: null,
-      approval: null,
       query: null,
     });
   };
@@ -94,9 +90,9 @@ export function PDFUploader({ onDataExtracted, currentClaims }: PDFUploaderProps
       patientName: newClaimData.patientName,
       // Update date of service if new data available, otherwise keep existing
       dateOfService: newClaimData.dateOfService || existingClaim.dateOfService,
-      // Update amounts: prefer new data from approval PDF, otherwise keep existing
+      // Update amounts: prefer new data from query PDF, otherwise keep existing
       totalAmt: newClaimData.totalAmt ?? existingClaim.totalAmt,
-      // acceptedAmt should ONLY come from approval PDF - use new if available, otherwise keep existing
+      // acceptedAmt should ONLY come from query PDF - use new if available, otherwise keep existing
       acceptedAmt: newClaimData.acceptedAmt !== undefined ? newClaimData.acceptedAmt : existingClaim.acceptedAmt,
       deniedAmt: newClaimData.deniedAmt ?? existingClaim.deniedAmt,
       // Merge documents: add new ones if not already present (check by name)
@@ -154,11 +150,11 @@ export function PDFUploader({ onDataExtracted, currentClaims }: PDFUploaderProps
           )
         )
       ],
-      // approvalStatus should ONLY come from approval PDF
+      // approvalStatus should ONLY come from query PDF
       approvalStatus: newClaimData.approvalStatus !== undefined && newClaimData.approvalStatus !== null 
         ? newClaimData.approvalStatus 
         : existingClaim.approvalStatus,
-      // approvalReason should ONLY come from approval PDF
+      // approvalReason should ONLY come from query PDF
       approvalReason: newClaimData.approvalReason !== undefined && newClaimData.approvalReason !== null 
         ? newClaimData.approvalReason 
         : existingClaim.approvalReason,
@@ -168,11 +164,11 @@ export function PDFUploader({ onDataExtracted, currentClaims }: PDFUploaderProps
     return merged;
   };
 
-  const canProcess = pdfSet.claim && pdfSet.approval && pdfSet.query && secretKey && !isProcessing;
+  const canProcess = pdfSet.claim && pdfSet.query && secretKey && !isProcessing;
 
   const processFiles = async () => {
-    if (!pdfSet.claim || !pdfSet.approval || !pdfSet.query) {
-      toast.error('Please upload all 3 PDFs (Claim, Approval, and Query)');
+    if (!pdfSet.claim || !pdfSet.query) {
+      toast.error('Please upload both PDFs (Claim and Query)');
       return;
     }
 
@@ -187,9 +183,8 @@ export function PDFUploader({ onDataExtracted, currentClaims }: PDFUploaderProps
       console.log('[PDF_UPLOADER] Starting PDF processing with OpenAI');
       
       // Use OpenAI extraction for better accuracy
-      const result = await processMultiplePDFsAsSet(
+      const result = await processClaimAndQueryPDFs(
         pdfSet.claim,
-        pdfSet.approval,
         pdfSet.query,
         secretKey
       );
@@ -340,7 +335,7 @@ export function PDFUploader({ onDataExtracted, currentClaims }: PDFUploaderProps
     );
   };
 
-  const allFilesUploaded = pdfSet.claim && pdfSet.approval && pdfSet.query;
+  const allFilesUploaded = pdfSet.claim && pdfSet.query;
 
   return (
     <Card className="p-4">
@@ -381,14 +376,14 @@ export function PDFUploader({ onDataExtracted, currentClaims }: PDFUploaderProps
 
         {/* Header */}
         <div>
-          <h3 className="text-lg font-semibold text-foreground">Upload Claim Document Set</h3>
+          <h3 className="text-lg font-semibold text-foreground">Upload Claim Documents</h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Upload all 3 PDFs to create a complete claim record. All PDFs must have matching Claim IDs.
+            Upload Claim and Query PDFs to create a complete claim record. The Query PDF contains both query information and approval data (approved amounts, status, and reasons).
           </p>
         </div>
 
-        {/* 3 File Upload Boxes */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* 2 File Upload Boxes */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {renderFileUploadBox(
             'claim',
             '1. Claim PDF',
@@ -397,31 +392,23 @@ export function PDFUploader({ onDataExtracted, currentClaims }: PDFUploaderProps
             claimFileInputRef
           )}
           {renderFileUploadBox(
-            'approval',
-            '2. Approval PDF',
-            'Upload approval document',
-            pdfSet.approval,
-            approvalFileInputRef
-          )}
-          {renderFileUploadBox(
             'query',
-            '3. Query PDF',
-            'Upload query document',
+            '2. Query PDF',
+            'Upload query document (contains approval data)',
             pdfSet.query,
             queryFileInputRef
           )}
         </div>
 
         {/* Validation Message */}
-        {!allFilesUploaded && (pdfSet.claim || pdfSet.approval || pdfSet.query) && (
+        {!allFilesUploaded && (pdfSet.claim || pdfSet.query) && (
           <div className="flex items-start gap-2 p-3 rounded-lg bg-warning/10 border border-warning/20">
             <AlertCircle className="h-5 w-5 text-warning flex-shrink-0 mt-0.5" />
             <div className="text-sm">
               <p className="font-medium text-foreground">Missing PDFs</p>
               <p className="text-muted-foreground">
-                Please upload all 3 PDFs to continue
+                Please upload both PDFs to continue
                 {!pdfSet.claim && ' • Missing Claim PDF'}
-                {!pdfSet.approval && ' • Missing Approval PDF'}
                 {!pdfSet.query && ' • Missing Query PDF'}
               </p>
             </div>
@@ -430,7 +417,7 @@ export function PDFUploader({ onDataExtracted, currentClaims }: PDFUploaderProps
 
         {/* Action Buttons */}
         <div className="flex gap-3 justify-end">
-          {(pdfSet.claim || pdfSet.approval || pdfSet.query) && (
+          {(pdfSet.claim || pdfSet.query) && (
             <Button
               variant="outline"
               onClick={clearAll}

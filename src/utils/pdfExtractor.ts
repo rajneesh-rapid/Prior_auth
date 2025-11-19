@@ -101,6 +101,14 @@ For APPROVAL documents:
 - Preserve each row's own status, approvalStatus, reason, and queryReason exactly as written.
 - When a column contains a date immediately before the status (e.g., "23/09/2025Partially Approved"), strip the date for the status field but keep the status text.
 
+For QUERY documents:
+- Extract BOTH query information AND approval data. The query PDF contains both:
+  * Query information: Extract queryReason from "Query Reason" column or query-related text
+  * Approval data: Extract acceptedAmt (approved amounts), status (approval status), reason (approval reason) from the approval table/data
+  * Analyze the approval table to determine actual approval status (Approved, Partially Approved, or Denied) based on Approved Qty, Apprd Amt, Disallowed Amt
+  * Extract items with approval information from the approval table if present
+  * The status field should reflect the approval status, not just "Query Raised"
+
 Return ONLY a valid JSON object with these exact field names. If a field is not found, omit it completely.
 
 Example format:
@@ -343,12 +351,12 @@ export async function processPDFUpload(
 }
 
 /**
- * Process 3 PDFs as a set (Claim, Approval, Query) and validate patientName matches
+ * Process 2 PDFs as a set (Claim and Query) and validate patientName matches
  * Uses patientName as the primary identifier (unique key)
+ * Query PDF contains both query information AND approval data
  */
-export async function processMultiplePDFsAsSet(
+export async function processClaimAndQueryPDFs(
   claimFile: File,
-  approvalFile: File,
   queryFile: File,
   apiKey?: string
 ): Promise<{
@@ -365,10 +373,9 @@ export async function processMultiplePDFsAsSet(
   documents: ClaimDocument[];
 }> {
   try {
-    // Process all 3 PDFs in parallel
-    const [claimResult, approvalResult, queryResult] = await Promise.all([
+    // Process both PDFs in parallel
+    const [claimResult, queryResult] = await Promise.all([
       extractDataWithOpenAI(claimFile, 'CLAIM', apiKey),
-      extractDataWithOpenAI(approvalFile, 'APPROVAL', apiKey),
       extractDataWithOpenAI(queryFile, 'QUERY', apiKey),
     ]);
 
@@ -381,14 +388,7 @@ export async function processMultiplePDFsAsSet(
 
     // ClaimId matching is optional (log warning if mismatch, use claim PDF's claimId)
     const claimId = claimResult.claimId;
-    const approvalClaimId = approvalResult.claimId;
     const queryClaimId = queryResult.claimId;
-
-    if (approvalClaimId && approvalClaimId !== claimId) {
-      console.warn(
-        `Claim ID mismatch: Claim PDF has "${claimId}" but Approval PDF has "${approvalClaimId}". Using claim PDF's claimId.`
-      );
-    }
 
     if (queryClaimId && queryClaimId !== claimId) {
       console.warn(
@@ -405,27 +405,20 @@ export async function processMultiplePDFsAsSet(
       url: URL.createObjectURL(claimFile),
     };
 
-    const approvalDoc: ClaimDocument = {
-      id: `doc-${Date.now() + 1}-${Math.random().toString(36).substr(2, 9)}`,
-      name: approvalFile.name,
-      size: approvalFile.size,
-      uploadDate: new Date().toISOString(),
-      url: URL.createObjectURL(approvalFile),
-    };
-
     const queryDoc: ClaimDocument = {
-      id: `doc-${Date.now() + 2}-${Math.random().toString(36).substr(2, 9)}`,
+      id: `doc-${Date.now() + 1}-${Math.random().toString(36).substr(2, 9)}`,
       name: queryFile.name,
       size: queryFile.size,
       uploadDate: new Date().toISOString(),
       url: URL.createObjectURL(queryFile),
     };
 
-    // Merge data from all 3 PDFs
-    // Use acceptedAmt ONLY from approval PDF (no fallback to claim PDF)
-    const acceptedAmt = approvalResult.acceptedAmt ?? 0;
-    // Use deniedAmt from approval PDF or claim PDF
-    const deniedAmt = approvalResult.deniedAmt ?? claimResult.deniedAmt ?? 0;
+    // Merge data from both PDFs
+    // Extract approval data from query PDF (acceptedAmt, approvalStatus, approvalReason)
+    // Use acceptedAmt ONLY from query PDF (no fallback to claim PDF)
+    const acceptedAmt = queryResult.acceptedAmt ?? 0;
+    // Use deniedAmt from query PDF or claim PDF
+    const deniedAmt = queryResult.deniedAmt ?? claimResult.deniedAmt ?? 0;
     
     return {
       claimId: claimId || `CLM-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`,
@@ -435,11 +428,15 @@ export async function processMultiplePDFsAsSet(
       totalAmt: claimResult.items?.reduce((sum, item) => sum + (item.amount || 0), 0) || claimResult.totalAmt || 0,
       acceptedAmt,
       deniedAmt,
-      items: mergeItemsFromSources(claimResult.items, approvalResult.items),
-      approvalStatus: approvalResult.status,
-      approvalReason: approvalResult.reason,
-      queryReason: queryResult.reason || '',
-      documents: [claimDoc, approvalDoc, queryDoc],
+      // Use items from query PDF if available (contains approval data), otherwise use claim PDF items
+      items: mergeItemsFromSources(claimResult.items, queryResult.items),
+      // Extract approval status from query PDF
+      approvalStatus: queryResult.status,
+      // Extract approval reason from query PDF
+      approvalReason: queryResult.reason,
+      // Extract query reason from query PDF
+      queryReason: queryResult.queryReason || '',
+      documents: [claimDoc, queryDoc],
     };
   } catch (error) {
     console.error('Error processing PDF set:', error);

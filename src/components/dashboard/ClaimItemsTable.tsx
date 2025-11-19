@@ -16,31 +16,31 @@ export function ClaimItemsTable({ items, claimId, approvalStatus, onActionClick 
       <table className="w-full">
         <thead className="bg-table-header">
           <tr>
-            <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">
+            <th className="px-3 py-2 text-left text-sm font-semibold text-foreground">
               Item Code
             </th>
-            <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">
+            <th className="px-3 py-2 text-left text-sm font-semibold text-foreground">
               Procedure
             </th>
-            <th className="px-4 py-3 text-right text-sm font-semibold text-foreground">
+            <th className="px-3 py-2 text-right text-sm font-semibold text-foreground">
               Amount
             </th>
-            <th className="px-4 py-3 text-right text-sm font-semibold text-foreground">
+            <th className="px-3 py-2 text-right text-sm font-semibold text-foreground">
               Approved Amount
             </th>
-            <th className="px-4 py-3 text-center text-sm font-semibold text-foreground">
+            <th className="px-3 py-2 text-center text-sm font-semibold text-foreground">
               Qty
             </th>
-            <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">
+            <th className="px-3 py-2 text-left text-sm font-semibold text-foreground">
               Status
             </th>
-            <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">
+            <th className="px-3 py-2 text-left text-sm font-semibold text-foreground">
               Reason / Notes
             </th>
-            <th className="px-4 py-3 text-left text-sm font-semibold text-foreground">
+            <th className="px-3 py-2 text-left text-sm font-semibold text-foreground">
               Approval Status
             </th>
-            <th className="px-4 py-3 text-center text-sm font-semibold text-foreground">
+            <th className="px-3 py-2 text-center text-sm font-semibold text-foreground">
               Action
             </th>
           </tr>
@@ -60,19 +60,19 @@ export function ClaimItemsTable({ items, claimId, approvalStatus, onActionClick 
 
                 return (
                   <>
-                    <td className="px-4 py-3 text-sm font-mono text-foreground">
+                    <td className="px-3 py-2 text-sm font-mono text-foreground">
                       {item.itemCode}
                     </td>
-                    <td className="px-4 py-3 text-sm text-foreground">
+                    <td className="px-3 py-2 text-sm text-foreground">
                       {item.procedure}
                     </td>
-                    <td className="px-4 py-3 text-sm text-right font-medium text-foreground">
+                    <td className="px-3 py-2 text-sm text-right font-medium text-foreground">
                       ${amountValue.toFixed(2)}
                     </td>
-                    <td className="px-4 py-3 text-sm text-right font-medium text-success">
+                    <td className="px-3 py-2 text-sm text-right font-medium text-success">
                       ${approvedAmountValue.toFixed(2)}
                     </td>
-                    <td className="px-4 py-3 text-sm text-center text-foreground">
+                    <td className="px-3 py-2 text-sm text-center text-foreground">
                       {item.qty}
                     </td>
                     <td className="px-4 py-3">
@@ -104,7 +104,7 @@ export function ClaimItemsTable({ items, claimId, approvalStatus, onActionClick 
                   </>
                 );
               })()}
-              <td className="px-4 py-3 text-center">
+              <td className="px-3 py-2 text-center">
                 <Button
                   variant="default"
                   size="sm"

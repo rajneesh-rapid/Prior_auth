@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Claim, ClaimItem } from "@/types/claim";
 import {
   Dialog,
@@ -11,7 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { CheckCircle, HelpCircle, XCircle } from "lucide-react";
+import { CheckCircle, HelpCircle, XCircle, FileText, Send, FolderOpen } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface ActionModalProps {
@@ -22,13 +22,104 @@ interface ActionModalProps {
   onOpenChange: (open: boolean) => void;
   onSubmitAction: (
     claimId: string,
-    action: "approve" | "query" | "deny",
+    action: "approve" | "query" | "deny" | "sendToDoctor" | "sendToMedicalBoard" | "requestDocuments",
     comment?: string,
     itemCode?: string
   ) => void;
 }
 
-type ActionType = "approve" | "query" | "deny" | null;
+type ActionType = "approve" | "query" | "deny" | "sendToDoctor" | "sendToMedicalBoard" | "requestDocuments" | null;
+
+interface DeterminedAction {
+  type: "sendToDoctor" | "sendToMedicalBoard" | "requestDocuments";
+  label: string;
+  icon: React.ReactNode;
+  defaultComment: string;
+  color: string;
+  hoverColor: string;
+}
+
+/**
+ * Determine actions from Reason/Notes content using keyword matching
+ */
+function determineActionsFromReason(reason: string): DeterminedAction[] {
+  if (!reason || !reason.trim()) {
+    return [];
+  }
+
+  const lowerReason = reason.toLowerCase();
+  const actions: DeterminedAction[] = [];
+
+  // Doctor-related keywords
+  const doctorKeywords = [
+    "doctor", "physician", "medical necessity", "treatment plan", 
+    "clinical notes", "prescription", "share results", "provide results", 
+    "please share", "share the results", "share results", "provide previous",
+    "send to doctor", "forward to doctor", "consult doctor", "doctor review",
+    "medical provider", "attending physician", "treating physician"
+  ];
+  
+  // Medical Board-related keywords
+  const medicalBoardKeywords = [
+    "medical board", "policy violation", "coding", "discrepancy", 
+    "review", "authorization", "cpt", "cpt activity", 
+    "repeated within set time frame", "time frame", "set time frame",
+    "cpt activity repeated", "payment included", "allowance for another service",
+    "medical review board", "coding review", "policy review", "compliance review",
+    "duplicate service", "duplicate claim", "billing error", "coding error"
+  ];
+  
+  // Documentation-related keywords
+  const documentationKeywords = [
+    "missing documents", "additional documentation", "lab results", 
+    "previous results", "same were done previously", "missing", 
+    "additional", "documentation", "previous", "requesting", "request",
+    "provide documents", "submit documents", "upload documents", "send documents",
+    "lab report", "test results", "medical records", "clinical documentation",
+    "insufficient documentation", "incomplete documentation", "need documents"
+  ];
+
+  // Check for doctor-related keywords
+  const hasDoctorKeywords = doctorKeywords.some(keyword => lowerReason.includes(keyword));
+  if (hasDoctorKeywords) {
+    actions.push({
+      type: "sendToDoctor",
+      label: "Send Documents to Doctor",
+      icon: <Send className="h-8 w-8 text-primary" />,
+      defaultComment: `Sending documents to doctor: ${reason}`,
+      color: "text-primary",
+      hoverColor: "hover:border-primary hover:bg-primary/10"
+    });
+  }
+
+  // Check for medical board-related keywords
+  const hasMedicalBoardKeywords = medicalBoardKeywords.some(keyword => lowerReason.includes(keyword));
+  if (hasMedicalBoardKeywords) {
+    actions.push({
+      type: "sendToMedicalBoard",
+      label: "Send Documents to Medical Board",
+      icon: <FileText className="h-8 w-8 text-warning" />,
+      defaultComment: `Sending documents to medical board: ${reason}`,
+      color: "text-warning",
+      hoverColor: "hover:border-warning hover:bg-warning/10"
+    });
+  }
+
+  // Check for documentation-related keywords
+  const hasDocumentationKeywords = documentationKeywords.some(keyword => lowerReason.includes(keyword));
+  if (hasDocumentationKeywords) {
+    actions.push({
+      type: "requestDocuments",
+      label: "Request Additional Documents",
+      icon: <FolderOpen className="h-8 w-8 text-blue-600" />,
+      defaultComment: `Requesting additional documents: ${reason}`,
+      color: "text-blue-600",
+      hoverColor: "hover:border-blue-600 hover:bg-blue-600/10"
+    });
+  }
+
+  return actions;
+}
 
 export function ActionModal({
   claim,
@@ -42,6 +133,40 @@ export function ActionModal({
   const [comment, setComment] = useState("");
   const { toast } = useToast();
 
+  // Get Reason/Notes from item-level or claim-level
+  const reasonText = useMemo(() => {
+    // Priority 1: Item-level reason field (direct field)
+    if (item?.reason && item.reason.trim()) {
+      return item.reason.trim();
+    }
+    
+    // Priority 2: Item-level reasonHistory (latest entry)
+    if (item?.reasonHistory && item.reasonHistory.length > 0) {
+      const latestReason = item.reasonHistory[item.reasonHistory.length - 1];
+      const reasonFromHistory = latestReason.comment || latestReason.label || "";
+      if (reasonFromHistory.trim()) {
+        return reasonFromHistory.trim();
+      }
+    }
+    
+    // Priority 3: Claim-level approvalReason
+    if (claim?.approvalReason && claim.approvalReason.trim()) {
+      return claim.approvalReason.trim();
+    }
+    
+    // Priority 4: Claim-level queryReason
+    if (claim?.queryReason && claim.queryReason.trim()) {
+      return claim.queryReason.trim();
+    }
+    
+    return "";
+  }, [item, claim]);
+
+  // Determine actions from Reason/Notes
+  const determinedActions = useMemo(() => {
+    return determineActionsFromReason(reasonText);
+  }, [reasonText]);
+
   const handleActionSelect = (action: ActionType, defaultComment = "") => {
     setSelectedAction(action);
     setComment(defaultComment || "");
@@ -50,10 +175,13 @@ export function ActionModal({
   const handleSubmit = () => {
     if (!claim || !selectedAction) return;
 
-    if ((selectedAction === "query" || selectedAction === "deny") && !comment.trim()) {
+    // For new action types, always require comment
+    const requiresComment = ["query", "deny", "sendToDoctor", "sendToMedicalBoard", "requestDocuments"].includes(selectedAction);
+    
+    if (requiresComment && !comment.trim()) {
       toast({
         title: "Comment required",
-        description: `Please provide a ${selectedAction === "query" ? "query" : "reason"} before submitting.`,
+        description: "Please provide details before submitting.",
         variant: "destructive",
       });
       return;
@@ -68,9 +196,18 @@ export function ActionModal({
       targetItemCode || undefined
     );
 
+    const actionLabels: Record<string, string> = {
+      approve: "approved",
+      query: "queried",
+      deny: "denied",
+      sendToDoctor: "sent to doctor",
+      sendToMedicalBoard: "sent to medical board",
+      requestDocuments: "requested additional documents"
+    };
+
     toast({
       title: "Action submitted",
-      description: `Claim ${claim.claimId} has been ${selectedAction === "approve" ? "approved" : selectedAction === "query" ? "queried" : "denied"}.`,
+      description: `Claim ${claim.claimId} has been ${actionLabels[selectedAction] || "processed"}.`,
     });
 
     setSelectedAction(null);
@@ -149,41 +286,39 @@ export function ActionModal({
           {!selectedAction ? (
             <div className="space-y-3">
               <Label>Select Action</Label>
-              <div className="grid grid-cols-3 gap-3">
-                <Button
-                  variant="outline"
-                  className="h-auto flex-col gap-2 py-6 hover:border-primary hover:bg-primary/10"
-                  onClick={() => {
-                    setSelectedAction("query");
-                    setComment("Query to Doctor: Please review the treatment plan and provide additional details about the medical necessity of the procedures performed.");
-                  }}
-                >
-                  <HelpCircle className="h-8 w-8 text-primary" />
-                  <span className="font-semibold">Query to Doctor</span>
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-auto flex-col gap-2 py-6 hover:border-warning hover:bg-warning/10"
-                  onClick={() => {
-                    setSelectedAction("query");
-                    setComment("Query to Medical Board: Requesting review of the claim for potential policy violations or coding discrepancies.");
-                  }}
-                >
-                  <HelpCircle className="h-8 w-8 text-warning" />
-                  <span className="font-semibold">Query to Medical Board</span>
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-auto flex-col gap-2 py-6 hover:border-muted-foreground hover:bg-muted-foreground/10"
-                  onClick={() => {
-                    setSelectedAction("approve");
-                    setComment("Claim marked as ignored. No further action required.");
-                  }}
-                >
-                  <XCircle className="h-8 w-8 text-muted-foreground" />
-                  <span className="font-semibold">Ignore</span>
-                </Button>
-              </div>
+              {determinedActions.length > 0 ? (
+                <div className={`grid gap-3 ${
+                  determinedActions.length === 1 ? "grid-cols-1" :
+                  determinedActions.length === 2 ? "grid-cols-2" :
+                  "grid-cols-3"
+                }`}>
+                  {determinedActions.map((action) => (
+                    <Button
+                      key={action.type}
+                      variant="outline"
+                      className={`h-auto flex-col gap-2 py-6 ${action.hoverColor}`}
+                      onClick={() => {
+                        setSelectedAction(action.type);
+                        setComment(action.defaultComment);
+                      }}
+                    >
+                      {action.icon}
+                      <span className="font-semibold">{action.label}</span>
+                    </Button>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-4 rounded-lg bg-muted border border-border text-center">
+                  <p className="text-sm text-muted-foreground">
+                    No predefined actions available based on Reason/Notes.
+                  </p>
+                  {reasonText && (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Reason/Notes: {reasonText.substring(0, 100)}{reasonText.length > 100 ? "..." : ""}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           ) : (
             <div className="space-y-3">
@@ -200,12 +335,42 @@ export function ActionModal({
                     <span className="font-medium">Raising Query</span>
                   </>
                 )}
+                {selectedAction === "sendToDoctor" && (
+                  <>
+                    <Send className="h-5 w-5 text-primary" />
+                    <span className="font-medium">Sending Documents to Doctor</span>
+                  </>
+                )}
+                {selectedAction === "sendToMedicalBoard" && (
+                  <>
+                    <FileText className="h-5 w-5 text-warning" />
+                    <span className="font-medium">Sending Documents to Medical Board</span>
+                  </>
+                )}
+                {selectedAction === "requestDocuments" && (
+                  <>
+                    <FolderOpen className="h-5 w-5 text-blue-600" />
+                    <span className="font-medium">Requesting Additional Documents</span>
+                  </>
+                )}
+                {selectedAction === "deny" && (
+                  <>
+                    <XCircle className="h-5 w-5 text-destructive" />
+                    <span className="font-medium">Denying Claim</span>
+                  </>
+                )}
               </div>
 
-              {(selectedAction === "query" || selectedAction === "deny") && (
+              {(selectedAction === "query" || selectedAction === "deny" || 
+                selectedAction === "sendToDoctor" || selectedAction === "sendToMedicalBoard" || 
+                selectedAction === "requestDocuments") && (
                 <div className="space-y-2">
                   <Label htmlFor="comment">
-                    {selectedAction === "query" ? "Query Details" : "Denial Reason"} *
+                    {selectedAction === "query" ? "Query Details" : 
+                     selectedAction === "deny" ? "Denial Reason" :
+                     selectedAction === "sendToDoctor" ? "Message to Doctor" :
+                     selectedAction === "sendToMedicalBoard" ? "Message to Medical Board" :
+                     "Document Request Details"} *
                   </Label>
                   <Textarea
                     id="comment"
@@ -214,7 +379,13 @@ export function ActionModal({
                     placeholder={
                       selectedAction === "query"
                         ? "Describe the query or missing information..."
-                        : "Provide a reason for denial..."
+                        : selectedAction === "deny"
+                        ? "Provide a reason for denial..."
+                        : selectedAction === "sendToDoctor"
+                        ? "Enter message/details for doctor..."
+                        : selectedAction === "sendToMedicalBoard"
+                        ? "Enter message/details for medical board..."
+                        : "Describe what additional documents are needed..."
                     }
                     className="min-h-[100px]"
                   />
@@ -235,7 +406,13 @@ export function ActionModal({
           </Button>
           {selectedAction && (
             <Button onClick={handleSubmit}>
-              {selectedAction === "approve" ? "Mark as Ignored" : "Submit Query"}
+              {selectedAction === "approve" ? "Mark as Ignored" : 
+               selectedAction === "query" ? "Submit Query" :
+               selectedAction === "deny" ? "Submit Denial" :
+               selectedAction === "sendToDoctor" ? "Send to Doctor" :
+               selectedAction === "sendToMedicalBoard" ? "Send to Medical Board" :
+               selectedAction === "requestDocuments" ? "Request Documents" :
+               "Submit"}
             </Button>
           )}
         </DialogFooter>
