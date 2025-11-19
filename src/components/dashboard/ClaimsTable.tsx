@@ -21,7 +21,7 @@ interface ClaimsTableProps {
   claims: Claim[];
   onClaimAction: (
     claimId: string,
-    action: "approve" | "query" | "deny" | "delete" | "sendToDoctor" | "sendToMedicalBoard" | "requestDocuments",
+    action: "approve" | "query" | "deny" | "delete" | "sendToDoctor" | "sendToMedicalRecords" | "requestDocuments",
     comment?: string,
     itemCode?: string
   ) => void;

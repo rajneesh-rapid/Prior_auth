@@ -58,7 +58,7 @@ function buildPrompt(context: SuggestionContext): string {
 
   const contextBlock = parts.join("\n");
 
-  return `You are an experienced medical claims reviewer. Read the context below and decide which action should be taken next for this claim item. Choose ONLY from these actions:
+  return `You are an experienced medical prior authorisation reviewer. Read the context below and decide which action should be taken next for this claim item. Choose ONLY from these actions:
 - approve: when the claim should be marked as acceptable / ignored.
 - query: when more information is required from the provider or doctor.
 - deny: when the claim should be denied based on the evidence.

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Claim, ClaimItem } from "@/types/claim";
 import {
   Dialog,
@@ -11,8 +11,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { CheckCircle, HelpCircle, XCircle, FileText, Send, FolderOpen } from "lucide-react";
+import { CheckCircle, HelpCircle, XCircle, FileText, Send, FolderOpen, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { determineActionsFromReasonLLM } from "@/utils/actionDetermination";
 
 interface ActionModalProps {
   claim: Claim | null;
@@ -22,16 +23,16 @@ interface ActionModalProps {
   onOpenChange: (open: boolean) => void;
   onSubmitAction: (
     claimId: string,
-    action: "approve" | "query" | "deny" | "sendToDoctor" | "sendToMedicalBoard" | "requestDocuments",
+    action: "approve" | "query" | "deny" | "delete" | "sendToDoctor" | "sendToMedicalRecords" | "requestDocuments",
     comment?: string,
     itemCode?: string
   ) => void;
 }
 
-type ActionType = "approve" | "query" | "deny" | "sendToDoctor" | "sendToMedicalBoard" | "requestDocuments" | null;
+type ActionType = "approve" | "query" | "deny" | "delete" | "sendToDoctor" | "sendToMedicalRecords" | "requestDocuments" | null;
 
 interface DeterminedAction {
-  type: "sendToDoctor" | "sendToMedicalBoard" | "requestDocuments";
+  type: "sendToDoctor" | "sendToMedicalRecords" | "requestDocuments";
   label: string;
   icon: React.ReactNode;
   defaultComment: string;
@@ -40,85 +41,31 @@ interface DeterminedAction {
 }
 
 /**
- * Determine actions from Reason/Notes content using keyword matching
+ * Map LLM-determined actions to UI format with icons and colors
  */
-function determineActionsFromReason(reason: string): DeterminedAction[] {
-  if (!reason || !reason.trim()) {
-    return [];
-  }
-
-  const lowerReason = reason.toLowerCase();
-  const actions: DeterminedAction[] = [];
-
-  // Doctor-related keywords
-  const doctorKeywords = [
-    "doctor", "physician", "medical necessity", "treatment plan", 
-    "clinical notes", "prescription", "share results", "provide results", 
-    "please share", "share the results", "share results", "provide previous",
-    "send to doctor", "forward to doctor", "consult doctor", "doctor review",
-    "medical provider", "attending physician", "treating physician"
-  ];
-  
-  // Medical Board-related keywords
-  const medicalBoardKeywords = [
-    "medical board", "policy violation", "coding", "discrepancy", 
-    "review", "authorization", "cpt", "cpt activity", 
-    "repeated within set time frame", "time frame", "set time frame",
-    "cpt activity repeated", "payment included", "allowance for another service",
-    "medical review board", "coding review", "policy review", "compliance review",
-    "duplicate service", "duplicate claim", "billing error", "coding error"
-  ];
-  
-  // Documentation-related keywords
-  const documentationKeywords = [
-    "missing documents", "additional documentation", "lab results", 
-    "previous results", "same were done previously", "missing", 
-    "additional", "documentation", "previous", "requesting", "request",
-    "provide documents", "submit documents", "upload documents", "send documents",
-    "lab report", "test results", "medical records", "clinical documentation",
-    "insufficient documentation", "incomplete documentation", "need documents"
-  ];
-
-  // Check for doctor-related keywords
-  const hasDoctorKeywords = doctorKeywords.some(keyword => lowerReason.includes(keyword));
-  if (hasDoctorKeywords) {
-    actions.push({
-      type: "sendToDoctor",
-      label: "Send Documents to Doctor",
-      icon: <Send className="h-8 w-8 text-primary" />,
-      defaultComment: `Sending documents to doctor: ${reason}`,
-      color: "text-primary",
-      hoverColor: "hover:border-primary hover:bg-primary/10"
-    });
-  }
-
-  // Check for medical board-related keywords
-  const hasMedicalBoardKeywords = medicalBoardKeywords.some(keyword => lowerReason.includes(keyword));
-  if (hasMedicalBoardKeywords) {
-    actions.push({
-      type: "sendToMedicalBoard",
-      label: "Send Documents to Medical Board",
-      icon: <FileText className="h-8 w-8 text-warning" />,
-      defaultComment: `Sending documents to medical board: ${reason}`,
-      color: "text-warning",
-      hoverColor: "hover:border-warning hover:bg-warning/10"
-    });
-  }
-
-  // Check for documentation-related keywords
-  const hasDocumentationKeywords = documentationKeywords.some(keyword => lowerReason.includes(keyword));
-  if (hasDocumentationKeywords) {
-    actions.push({
-      type: "requestDocuments",
-      label: "Request Additional Documents",
-      icon: <FolderOpen className="h-8 w-8 text-blue-600" />,
-      defaultComment: `Requesting additional documents: ${reason}`,
-      color: "text-blue-600",
-      hoverColor: "hover:border-blue-600 hover:bg-blue-600/10"
-    });
-  }
-
-  return actions;
+function mapLLMActionsToUI(llmActions: Array<{ type: "sendToDoctor" | "requestDocuments"; label: string; defaultComment: string; reasoning: string }>): DeterminedAction[] {
+  return llmActions.map((action) => {
+    if (action.type === "sendToDoctor") {
+      return {
+        type: "sendToDoctor",
+        label: action.label || "Request Clinical Clarity from Doctor",
+        icon: <Send className="h-8 w-8 text-primary" />,
+        defaultComment: action.defaultComment,
+        color: "text-primary",
+        hoverColor: "hover:border-primary hover:bg-primary/10"
+      };
+    } else {
+      // requestDocuments
+      return {
+        type: "requestDocuments",
+        label: action.label || "Request Documents from Medical Records",
+        icon: <FolderOpen className="h-8 w-8 text-blue-600" />,
+        defaultComment: action.defaultComment,
+        color: "text-blue-600",
+        hoverColor: "hover:border-blue-600 hover:bg-blue-600/10"
+      };
+    }
+  });
 }
 
 export function ActionModal({
@@ -131,41 +78,88 @@ export function ActionModal({
 }: ActionModalProps) {
   const [selectedAction, setSelectedAction] = useState<ActionType>(null);
   const [comment, setComment] = useState("");
+  const [determinedActions, setDeterminedActions] = useState<DeterminedAction[]>([]);
+  const [isLoadingActions, setIsLoadingActions] = useState(false);
   const { toast } = useToast();
 
   // Get Reason/Notes from item-level or claim-level
   const reasonText = useMemo(() => {
-    // Priority 1: Item-level reason field (direct field)
+    // First try to get from item-level reason field (direct field)
     if (item?.reason && item.reason.trim()) {
-      return item.reason.trim();
+      console.log('[ACTION_MODAL] Using item.reason:', item.reason);
+      return item.reason;
     }
     
-    // Priority 2: Item-level reasonHistory (latest entry)
+    // Then try item-level reasonHistory
     if (item?.reasonHistory && item.reasonHistory.length > 0) {
       const latestReason = item.reasonHistory[item.reasonHistory.length - 1];
-      const reasonFromHistory = latestReason.comment || latestReason.label || "";
-      if (reasonFromHistory.trim()) {
-        return reasonFromHistory.trim();
+      const reasonText = latestReason.comment || latestReason.label || "";
+      if (reasonText.trim()) {
+        console.log('[ACTION_MODAL] Using item.reasonHistory:', reasonText);
+        return reasonText;
       }
     }
     
-    // Priority 3: Claim-level approvalReason
-    if (claim?.approvalReason && claim.approvalReason.trim()) {
-      return claim.approvalReason.trim();
+    // Fallback to claim-level approvalReason or queryReason
+    if (claim) {
+      const claimReason = claim.approvalReason || claim.queryReason || "";
+      if (claimReason.trim()) {
+        console.log('[ACTION_MODAL] Using claim-level reason:', claimReason);
+        return claimReason;
+      }
     }
     
-    // Priority 4: Claim-level queryReason
-    if (claim?.queryReason && claim.queryReason.trim()) {
-      return claim.queryReason.trim();
-    }
-    
+    console.log('[ACTION_MODAL] No reason text found');
     return "";
   }, [item, claim]);
 
-  // Determine actions from Reason/Notes
-  const determinedActions = useMemo(() => {
-    return determineActionsFromReason(reasonText);
-  }, [reasonText]);
+  // Determine actions from Reason/Notes using LLM
+  useEffect(() => {
+    if (!open) {
+      setDeterminedActions([]);
+      setIsLoadingActions(false);
+      return;
+    }
+
+    if (!reasonText.trim()) {
+      console.log('[ACTION_MODAL] No reason text, clearing actions');
+      setDeterminedActions([]);
+      setIsLoadingActions(false);
+      return;
+    }
+
+    console.log('[ACTION_MODAL] Starting LLM action determination for reason:', reasonText.substring(0, 100));
+    let cancelled = false;
+    setIsLoadingActions(true);
+
+    // Pass claim and item context to the action determination function
+    const context = {
+      claim: claim || undefined,
+      item: item || undefined,
+    };
+
+    determineActionsFromReasonLLM(reasonText, undefined, context)
+      .then((llmActions) => {
+        if (!cancelled) {
+          console.log('[ACTION_MODAL] Received LLM actions:', llmActions);
+          const mappedActions = mapLLMActionsToUI(llmActions);
+          console.log('[ACTION_MODAL] Mapped to UI actions:', mappedActions);
+          setDeterminedActions(mappedActions);
+          setIsLoadingActions(false);
+        }
+      })
+      .catch((error) => {
+        console.error('[ACTION_MODAL] Error determining actions from LLM:', error);
+        if (!cancelled) {
+          setDeterminedActions([]);
+          setIsLoadingActions(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reasonText, open, claim, item]);
 
   const handleActionSelect = (action: ActionType, defaultComment = "") => {
     setSelectedAction(action);
@@ -176,7 +170,7 @@ export function ActionModal({
     if (!claim || !selectedAction) return;
 
     // For new action types, always require comment
-    const requiresComment = ["query", "deny", "sendToDoctor", "sendToMedicalBoard", "requestDocuments"].includes(selectedAction);
+    const requiresComment = ["query", "deny", "sendToDoctor", "sendToMedicalRecords", "requestDocuments"].includes(selectedAction);
     
     if (requiresComment && !comment.trim()) {
       toast({
@@ -201,7 +195,7 @@ export function ActionModal({
       query: "queried",
       deny: "denied",
       sendToDoctor: "sent to doctor",
-      sendToMedicalBoard: "sent to medical board",
+      sendToMedicalRecords: "sent to medical records",
       requestDocuments: "requested additional documents"
     };
 
@@ -286,7 +280,14 @@ export function ActionModal({
           {!selectedAction ? (
             <div className="space-y-3">
               <Label>Select Action</Label>
-              {determinedActions.length > 0 ? (
+              {isLoadingActions ? (
+                <div className="p-4 rounded-lg bg-muted border border-border text-center">
+                  <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-primary" />
+                  <p className="text-sm text-muted-foreground">
+                    Analyzing query reason to determine next action...
+                  </p>
+                </div>
+              ) : determinedActions.length > 0 ? (
                 <div className={`grid gap-3 ${
                   determinedActions.length === 1 ? "grid-cols-1" :
                   determinedActions.length === 2 ? "grid-cols-2" :
@@ -310,7 +311,7 @@ export function ActionModal({
               ) : (
                 <div className="p-4 rounded-lg bg-muted border border-border text-center">
                   <p className="text-sm text-muted-foreground">
-                    No predefined actions available based on Reason/Notes.
+                    No actions determined from query reason.
                   </p>
                   {reasonText && (
                     <p className="text-xs text-muted-foreground mt-2">
@@ -341,10 +342,10 @@ export function ActionModal({
                     <span className="font-medium">Sending Documents to Doctor</span>
                   </>
                 )}
-                {selectedAction === "sendToMedicalBoard" && (
+                {selectedAction === "sendToMedicalRecords" && (
                   <>
                     <FileText className="h-5 w-5 text-warning" />
-                    <span className="font-medium">Sending Documents to Medical Board</span>
+                    <span className="font-medium">Sending Documents to Medical Records</span>
                   </>
                 )}
                 {selectedAction === "requestDocuments" && (
@@ -362,14 +363,14 @@ export function ActionModal({
               </div>
 
               {(selectedAction === "query" || selectedAction === "deny" || 
-                selectedAction === "sendToDoctor" || selectedAction === "sendToMedicalBoard" || 
+                selectedAction === "sendToDoctor" || selectedAction === "sendToMedicalRecords" || 
                 selectedAction === "requestDocuments") && (
                 <div className="space-y-2">
                   <Label htmlFor="comment">
                     {selectedAction === "query" ? "Query Details" : 
                      selectedAction === "deny" ? "Denial Reason" :
                      selectedAction === "sendToDoctor" ? "Message to Doctor" :
-                     selectedAction === "sendToMedicalBoard" ? "Message to Medical Board" :
+                     selectedAction === "sendToMedicalRecords" ? "Message to Medical Records" :
                      "Document Request Details"} *
                   </Label>
                   <Textarea
@@ -383,8 +384,8 @@ export function ActionModal({
                         ? "Provide a reason for denial..."
                         : selectedAction === "sendToDoctor"
                         ? "Enter message/details for doctor..."
-                        : selectedAction === "sendToMedicalBoard"
-                        ? "Enter message/details for medical board..."
+                        : selectedAction === "sendToMedicalRecords"
+                        ? "Enter message/details for medical records..."
                         : "Describe what additional documents are needed..."
                     }
                     className="min-h-[100px]"
@@ -410,7 +411,7 @@ export function ActionModal({
                selectedAction === "query" ? "Submit Query" :
                selectedAction === "deny" ? "Submit Denial" :
                selectedAction === "sendToDoctor" ? "Send to Doctor" :
-               selectedAction === "sendToMedicalBoard" ? "Send to Medical Board" :
+               selectedAction === "sendToMedicalRecords" ? "Send to Medical Records" :
                selectedAction === "requestDocuments" ? "Request Documents" :
                "Submit"}
             </Button>

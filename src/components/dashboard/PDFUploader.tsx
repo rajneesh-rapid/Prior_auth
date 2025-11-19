@@ -376,9 +376,9 @@ export function PDFUploader({ onDataExtracted, currentClaims }: PDFUploaderProps
 
         {/* Header */}
         <div>
-          <h3 className="text-lg font-semibold text-foreground">Upload Claim Documents</h3>
+          <h3 className="text-lg font-semibold text-foreground">Upload Claim Document Set</h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Upload Claim and Query PDFs to create a complete claim record. The Query PDF contains both query information and approval data (approved amounts, status, and reasons).
+            Upload both PDFs to create a complete claim record. The Query PDF contains both query information and approval data.
           </p>
         </div>
 
