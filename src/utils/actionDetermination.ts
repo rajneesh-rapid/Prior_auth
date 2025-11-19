@@ -153,6 +153,7 @@ function determineActionsFromReasonFallback(
     "previous",
     "before",
     "previously",
+    "prev",
     "evidence",
     "documentation",
     "records",
@@ -162,7 +163,22 @@ function determineActionsFromReasonFallback(
     "provide evidence",
     "share the results",
     "lab result",
-    "test result"
+    "test result",
+    "report",
+    "prev report",
+    "previous report",
+    "investigation report",
+    "supportive investigation",
+    "supportive investigation report",
+    "additional info",
+    "additional information",
+    "provide",
+    "provide report",
+    "provide documentation",
+    "provide evidence",
+    "share",
+    "send",
+    "submit"
   ];
 
   const hasDocumentKeywords = documentKeywords.some(keyword => lowerReason.includes(keyword));
@@ -244,11 +260,17 @@ There are TWO key actions available:
      * "same were done previously, please share the results"
      * "previous test results needed"
      * "provide previous lab result"
+     * "prev report" (needs previous report/document)
+     * "Additional Info" or "Additional Information" (needs additional documents/information)
+     * "provide supportive investigation report" (needs investigation report document)
+     * "provide report" (needs report document)
+     * "investigation report" (needs investigation report)
+     * "supportive investigation" (needs supportive investigation documents)
      * "CPT ACTIVITY REPEATED WITHIN SET TIME FRAME" (needs evidence of previous activity)
      * "CPT activity repeated within set time frame of 1 Year" (needs documentation of previous service)
      * "Payment is included in the allowance for another service" (needs documentation/proof)
      * "Payment already made for same/similar service within set time frame" (needs evidence)
-     * Any mention of "previously", "before", "previous", "past", "evidence", "documentation", "records"
+     * Any mention of "previously", "before", "previous", "prev", "past", "evidence", "documentation", "records", "report", "provide", "share", "send"
 
 2. "sendToDoctor" - Use when the payor/insurance is asking for CLINICAL CLARITY or MEDICAL JUSTIFICATION from the doctor:
    - Why the service was performed (clinical reason)
@@ -268,7 +290,10 @@ There are TWO key actions available:
      * Any mention of "clinical", "medical necessity", "why necessary", "justification", "clinical information"
 
 Decision Rules:
-- If query mentions "previous", "before", "previously", "evidence", "documentation", "records", "CPT repeated", "time frame" → "requestDocuments" (medical records team)
+- If query mentions "previous", "before", "previously", "prev", "evidence", "documentation", "records", "CPT repeated", "time frame" → "requestDocuments" (medical records team)
+- If query mentions "report", "prev report", "investigation report", "supportive investigation report" → "requestDocuments" (medical records team)
+- If query mentions "Additional Info" or "Additional Information" → "requestDocuments" (medical records team)
+- If query asks to "provide", "share", "send", "submit" any report, document, or investigation → "requestDocuments" (medical records team)
 - If query mentions "clinical", "medical necessity", "why necessary", "justification", "not payable based on clinical" → "sendToDoctor" (doctor)
 - If query asks "why" the service was done or why it's necessary → "sendToDoctor"
 - If query asks for proof/evidence of past services → "requestDocuments"
@@ -296,7 +321,11 @@ MESSAGE FORMATTING REQUIREMENTS:
 CRITICAL INSTRUCTIONS:
 - You MUST return at least one action if the query reason contains ANY denial, query, or actionable text
 - If the query reason mentions "clinical information", "medical necessity", "not payable based on clinical", "clinical justification", or asks why a service was necessary → you MUST return "sendToDoctor" action
-- If the query reason mentions "previous", "before", "previously", "evidence", "documentation", "records", "CPT repeated", "time frame" → you MUST return "requestDocuments" action
+- If the query reason mentions "previous", "before", "previously", "prev", "evidence", "documentation", "records", "CPT repeated", "time frame" → you MUST return "requestDocuments" action
+- If the query reason mentions "report", "prev report", "investigation report", "supportive investigation", "supportive investigation report" → you MUST return "requestDocuments" action
+- If the query reason is "Additional Info" or "Additional Information" → you MUST return "requestDocuments" action
+- If the query reason asks to "provide", "share", "send", "submit" any report, document, or investigation → you MUST return "requestDocuments" action
+- Specific examples that MUST trigger "requestDocuments": "prev report", "Additional Info", "provide supportive investigation report", "provide report", "investigation report"
 - "Service is not payable based on the given clinical information" → MUST return "sendToDoctor" (this is asking for clinical clarity)
 - "CPT ACTIVITY REPEATED WITHIN SET TIME FRAME" → MUST return "requestDocuments" (this is asking for evidence of previous activity)
 - Only return empty array if the query reason is completely blank or contains no actionable information
@@ -394,4 +423,6 @@ Return ONLY valid JSON, no additional text.`;
     return determineActionsFromReasonFallback(reason, context);
   }
 }
+
+
 
