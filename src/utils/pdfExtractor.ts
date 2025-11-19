@@ -80,7 +80,7 @@ Extract the following fields if present in the document:
 - Date of Service (dateOfService): In YYYY-MM-DD format (e.g., "14/10/2025" -> "2025-10-14")
 - Total Amount (totalAmt): Sum of all "Amount" values from the table (number only, remove $ and commas)
 - Accepted Amount (acceptedAmt): Sum of all "Approved Amount" / "Apprd Amt." values from the table (number only, remove $ and commas)
-- Denied Amount (deniedAmt): Total Amount minus Accepted Amount (number only)
+- Denied Amount (deniedAmt): Total Amount minus sum of approved amount from the table (number only)
 - Pre-Approval Status (preApprovalStatus): Extract the status from "Pre-Approval Status" field if present (e.g., "Required Information", "Approved", "Denied", etc.)
 - Additional Information Required (additionalInfoRequired): CRITICAL - Look for sections titled exactly "ADDITIONAL INFORMATION / CLARIFICATION REQUIRED FOR FURTHER PROCESSING" or "Additional Information / Query". Extract ALL text from this section. This is a high-priority field that indicates additional information is needed.
 - Shortfall Remarks (shortfallRemarks): Extract text from "Shortfall Remarks" section if present.
@@ -89,15 +89,15 @@ Extract the following fields if present in the document:
 - Query Reason (queryReason): CRITICAL - This field should contain text from "ADDITIONAL INFORMATION / CLARIFICATION REQUIRED FOR FURTHER PROCESSING" section if present. Also check for "Query Reason" text or remarks related to queries. If the value is just "-" or empty, return an empty string (""). Priority: Use text from "ADDITIONAL INFORMATION / CLARIFICATION REQUIRED FOR FURTHER PROCESSING" section first, then fall back to other query-related sections.
 - Items (items): Array of line items with structure {itemCode: string, procedure: string, amount: number, approvedAmt: number, qty: number, status: string, approvalStatus: string, reason: string, queryReason: string}
   * For each row in the table, extract:
-    - itemCode: The value under "Item Code" (e.g., "LAB011202")
-    - procedure: The full procedure name (e.g., "C-Reactive Protein (Quantitative)")
-    - amount: The value under "Amount" (convert to number, remove $ and commas, e.g., "$115.00" -> 115.00)
-    - approvedAmt: The value under "Approved Amount", "Apprd Amt.", or any column that represents the approved monetary value for that row. Convert to a number, remove $ and commas, and NEVER leave it at 0 unless the table cell is actually 0. This field must match the PDF table exactly.
-    - qty: The value under "Qty" (convert to number, e.g., 1)
-    - status: The exact status text from the "Status" column.
-    - approvalStatus: The exact text from the "Approval Status" column (ignore any preceding date)
-    - reason: The text from the "Disallowance / Denial Reason" (or "Reason / Notes" if that's the column title) for that specific row. If the column entry is blank or just "-", leave it as an empty string. Do NOT invent or reuse reasons from other rows.
-    - queryReason: The text from the "Query Reason" column for that row. If the value is just "-" or empty, use an empty string (""). If no column exists, leave empty.
+    - itemCode: The value under "Item Code", "Service Code", or "Treat/Drug Code" (e.g., "LAB011202", "LAB01071")
+    - procedure: The full procedure name from "Procedure", "Service Description", or "Treatment/Drug Desc" (e.g., "C-Reactive Protein (Quantitative)", "Vitamin D (25-Hydroxy-Cholecalciferol)")
+    - amount: The value under "Amount", "Est.Amt", "Estimated Amount", or "Requested Amount" (convert to number, remove $ and commas, e.g., "$115.00" -> 115.00)
+    - approvedAmt: The value under "Approved Amount", "Apprd Amt.", "Appr.Amt", or any column that represents the approved monetary value for that row. Convert to a number, remove $ and commas, and NEVER leave it at 0 unless the table cell is actually 0. This field must match the PDF table exactly.
+    - qty: The value under "Qty", "Quantity", or "Requested Qty" (convert to number, e.g., 1)
+    - status: The exact status text from the "Status" column. CRITICAL: If Status is "Additional Info" or "Additional Information", this indicates a query/request for additional information, NOT an approval or denial.
+    - approvalStatus: The exact text from the "Approval Status" column (ignore any preceding date). If Status column shows "Additional Info", set approvalStatus to "Query Raised". If Status shows "Approved" and approvedAmt > 0, set to "Approved". If Status shows "Denied" or approvedAmt is 0 with a reason, set to "Denied".
+    - reason: The text from the "Disallowance / Denial Reason" (or "Reason / Notes" if that's the column title) for that specific row. If the column entry is blank or just "-", leave it as an empty string. Do NOT invent or reuse reasons from other rows. CRITICAL: If Status is "Additional Info", do NOT put this in reason field - use queryReason instead.
+    - queryReason: CRITICAL - If the "Status" column shows "Additional Info" or "Additional Information", extract this status text into queryReason. Also check for text in parentheses in the procedure/description field (e.g., "(prev report)" should be extracted as query reason). The text from the "Query Reason" column for that row. If the value is just "-" or empty, use an empty string (""). If no column exists, leave empty.
   * Include ALL items from the table
   * If any field is missing, leave it as empty string or 0 for numbers
   
@@ -106,7 +106,6 @@ For QUERY documents:
 - Extract acceptedAmt (approved amount) from the approval table in the query document.
 - CRITICAL: Extract additionalInfoRequired from "ADDITIONAL INFORMATION / CLARIFICATION REQUIRED FOR FURTHER PROCESSING" section if present.
 - Extract preApprovalStatus from "Pre-Approval Status" field if present.
-- Extract shortfallRemarks from "Shortfall Remarks" section if present.
 - Extract queryReason: Priority is "ADDITIONAL INFORMATION / CLARIFICATION REQUIRED FOR FURTHER PROCESSING" section text, then other query-related sections.
 - Extract reason as the approval reason from disallowance/denial reasons in the approval table.
 - CRITICAL STATUS LOGIC: If additionalInfoRequired contains text, the status MUST be "Query Raised" or "Additional Info Required" - NOT "Approved" or "Partially Approved", even if all items in the table show "Approved". Only if additionalInfoRequired is empty should you determine status from the approval table (all Approved -> "Approved", mix -> "Partially Approved", all Denied -> "Denied").
@@ -129,6 +128,28 @@ Example format:
   "reason": "Payment is included in the allowance for another service; CPT activity repeated within set time frame of 1 year",
   "queryReason": "same were done previously, please share the results of the same",
   "items": [
+    {
+      "itemCode": "LAB01071",
+      "procedure": "Vitamin D (25-Hydroxy-Cholecalciferol) (prev report)",
+      "amount": 460.00,
+      "approvedAmt": 0.00,
+      "qty": 1,
+      "status": "Additional Info", // CRITICAL: If Status column shows "Additional Info", extract it exactly
+      "approvalStatus": "Query Raised", // If Status is "Additional Info", set approvalStatus to "Query Raised"
+      "reason": "", // If Status is "Additional Info", leave reason empty (it's not a denial)
+      "queryReason": "prev report" // Extract text from parentheses in procedure, or use "Additional Info" if Status column shows it
+    },
+    {
+      "itemCode": "LAB01231",
+      "procedure": "Thyroid Stimulating Hormone (TSH)",
+      "amount": 220.00,
+      "approvedAmt": 220.00,
+      "qty": 1,
+      "status": "Approved", // Example: use the actual text from the "Status" column
+      "approvalStatus": "Approved", // If Status is "Approved" and approvedAmt > 0, set to "Approved"
+      "reason": "", // If approved, leave reason empty
+      "queryReason": "" // If approved, leave queryReason empty
+    },
     {
       "itemCode": "LAB011202",
       "procedure": "C-Reactive Protein (Quantitative)",
@@ -336,22 +357,52 @@ try {
           return '';
         })();
         
+        // Check if Status column indicates "Additional Info" - this is a query, not a denial
+        const itemStatus = (item.status ?? '').trim().toLowerCase();
+        const isAdditionalInfoStatus = itemStatus === 'additional info' || itemStatus === 'additional information';
+        
+        // Extract query reason from procedure description (text in parentheses like "(prev report)")
+        const extractQueryFromProcedure = (procedureText: string): string => {
+          const match = procedureText.match(/\(([^)]+)\)/);
+          if (match && match[1]) {
+            const text = match[1].trim().toLowerCase();
+            // Check if it's a query-related text
+            if (text.includes('prev') || text.includes('previous') || text.includes('report') || 
+                text.includes('result') || text.includes('info') || text.includes('document')) {
+              return match[1].trim();
+            }
+          }
+          return '';
+        };
+        
+        const queryFromProcedure = item.procedure ? extractQueryFromProcedure(item.procedure) : '';
+        
         // Determine item status: PRIORITIZE reason/disallowance first, then queryReason, then additionalInfoRequired
         const itemQueryReason = (item.queryReason?.trim() || claimLevelQueryReason || '').trim();
         const hasItemQuery = itemQueryReason && itemQueryReason !== '-' && itemQueryReason.length > 0;
         
-        // Normalize queryReason: prioritize item-level, then claim-level queryReason, then additionalInfoRequired (fallback only)
+        // Normalize queryReason: prioritize item-level, then Status="Additional Info", then procedure query, then claim-level, then additionalInfoRequired
         const normalizedQueryReason = (() => {
           const itemQR = (item.queryReason ?? '').trim();
           // PRIORITY 1: If item has queryReason, use it
           if (itemQR && itemQR !== '-' && itemQR.length > 0) {
             return itemQR;
           }
-          // PRIORITY 2: If claim has queryReason, use it
+          // PRIORITY 2: If Status column shows "Additional Info", use that as queryReason
+          if (isAdditionalInfoStatus) {
+            console.log(`[PDF_EXTRACTOR] Item ${index}: Status column shows "Additional Info", using as queryReason`);
+            return 'Additional Info';
+          }
+          // PRIORITY 3: If procedure has query text in parentheses, use it
+          if (queryFromProcedure) {
+            console.log(`[PDF_EXTRACTOR] Item ${index}: Found query text in procedure: "${queryFromProcedure}"`);
+            return queryFromProcedure;
+          }
+          // PRIORITY 4: If claim has queryReason, use it
           if (claimLevelQueryReason && claimLevelQueryReason !== '-' && claimLevelQueryReason.length > 0) {
             return claimLevelQueryReason;
           }
-          // PRIORITY 3: If additionalInfoRequired exists and no queryReason, use it as fallback
+          // PRIORITY 5: If additionalInfoRequired exists and no queryReason, use it as fallback
           if (shouldUseAdditionalInfo) {
             console.log(`[PDF_EXTRACTOR] Item ${index}: Using additionalInfoRequired for queryReason (fallback): "${claimLevelAdditionalInfo}"`);
             return claimLevelAdditionalInfo;
@@ -359,18 +410,33 @@ try {
           return '';
         })();
         
+        // Update hasItemQuery to include Additional Info status
+        const hasItemQueryOrAdditionalInfo = hasItemQuery || isAdditionalInfoStatus || queryFromProcedure.length > 0;
+        
         const normalizedAmountRaw = normalizeCurrencyValue(item.amount);
         const normalizedApprovedAmount = normalizeCurrencyValue(item.approvedAmt);
         const normalizedAmount = normalizedAmountRaw > 0 ? normalizedAmountRaw : normalizedApprovedAmount;
 
-        // CRITICAL: Status determination - approvedAmt takes PRIORITY
+        // CRITICAL: Status determination - approvedAmt takes PRIORITY, but check Status column for "Additional Info"
         // If approvedAmt > 0, item is Approved (PDF shows approval, regardless of reason)
+        // If Status column shows "Additional Info", it's Query Raised (even if approvedAmt > 0, but typically approvedAmt will be 0)
         // Only if approvedAmt === 0, then check reason/queryReason
         let finalStatus: string;
         let finalReason = normalizedReason;
         let finalQueryReason = normalizedQueryReason;
         
-        if (normalizedApprovedAmount > 0) {
+        // CRITICAL: If Status column shows "Additional Info", treat as Query Raised (don't clear queryReason)
+        if (isAdditionalInfoStatus) {
+          // Status column explicitly says "Additional Info" → Query Raised
+          finalStatus = 'Query Raised';
+          // Keep queryReason (it should be "Additional Info" or extracted from procedure)
+          if (!finalQueryReason) {
+            finalQueryReason = 'Additional Info';
+          }
+          // Clear denial reason (Additional Info is not a denial)
+          finalReason = '';
+          console.log(`[PDF_EXTRACTOR] Item ${index}: Setting status to Query Raised (Status column shows "Additional Info")`);
+        } else if (normalizedApprovedAmount > 0) {
           // PRIORITY 1: If approvedAmt > 0, item is Approved (PDF shows it was approved)
           finalStatus = 'Approved';
           // Clear reason and queryReason for approved items
@@ -381,7 +447,7 @@ try {
           // PRIORITY 2: If approvedAmt is 0 and reason exists → Denied
           finalStatus = 'Denied';
           console.log(`[PDF_EXTRACTOR] Item ${index}: Setting status to Denied (approvedAmt=0, reason exists: "${normalizedReason.substring(0, 50)}...")`);
-        } else if (normalizedApprovedAmount === 0 && (hasItemQuery || hasClaimLevelQuery || shouldUseAdditionalInfo)) {
+        } else if (normalizedApprovedAmount === 0 && (hasItemQueryOrAdditionalInfo || hasClaimLevelQuery || shouldUseAdditionalInfo)) {
           // PRIORITY 3: If approvedAmt is 0 and queryReason exists → Query Raised
           finalStatus = 'Query Raised';
           console.log(`[PDF_EXTRACTOR] Item ${index}: Setting status to Query Raised (approvedAmt=0, queryReason exists)`);
@@ -434,6 +500,40 @@ try {
           status: finalStatus,
         } as ClaimItem;
       });
+      
+      // Calculate acceptedAmt as sum of all item approvedAmt values
+      const calculatedAcceptedAmt = extractedData.items.reduce((sum, item) => {
+        const itemApprovedAmt = normalizeCurrencyValue(item.approvedAmt);
+        return sum + itemApprovedAmt;
+      }, 0);
+      
+      // Calculate deniedAmt as sum of amounts for items that are NOT approved (approvedAmt === 0)
+      const calculatedDeniedAmt = extractedData.items.reduce((sum, item) => {
+        const itemApprovedAmt = normalizeCurrencyValue(item.approvedAmt);
+        const itemAmount = normalizeCurrencyValue(item.amount);
+        // If approvedAmt is 0, add the item's amount to deniedAmt
+        if (itemApprovedAmt === 0) {
+          return sum + itemAmount;
+        }
+        return sum;
+      }, 0);
+      
+      // Calculate totalAmt if not already set
+      const calculatedTotalAmt = extractedData.totalAmt || extractedData.items.reduce((sum, item) => {
+        const itemAmount = normalizeCurrencyValue(item.amount);
+        return sum + itemAmount;
+      }, 0);
+      
+      // Update acceptedAmt to be the sum of all approved amounts
+      extractedData.acceptedAmt = calculatedAcceptedAmt;
+      // Update deniedAmt to be the sum of amounts for non-approved items
+      extractedData.deniedAmt = calculatedDeniedAmt;
+      // Update totalAmt if needed
+      if (!extractedData.totalAmt) {
+        extractedData.totalAmt = calculatedTotalAmt;
+      }
+      
+      console.log(`[PDF_EXTRACTOR] Calculated totals - totalAmt: ${calculatedTotalAmt}, acceptedAmt: ${calculatedAcceptedAmt}, deniedAmt: ${calculatedDeniedAmt}`);
     }
     
     return extractedData;
@@ -580,8 +680,7 @@ export async function processClaimAndQueryPDFs(
     };
 
     // Merge data from both PDFs
-    // Use acceptedAmt ONLY from query PDF (query PDF contains approval data)
-    const acceptedAmt = queryResult.acceptedAmt ?? 0;
+    // Calculate acceptedAmt as sum of all item approvedAmt values from merged items
     // Use deniedAmt from query PDF or claim PDF
     const deniedAmt = queryResult.deniedAmt ?? claimResult.deniedAmt ?? 0;
     
@@ -611,12 +710,37 @@ export async function processClaimAndQueryPDFs(
     if (hasAdditionalInfo && mergedItems.length > 0) {
       console.log('[PDF_EXTRACTOR] Applying additionalInfoRequired to all items (as fallback only)');
       mergedItems = mergedItems.map(item => {
+        // Check if Status column indicates "Additional Info" - this is a query, not a denial
+        const itemStatus = (item.status ?? '').trim().toLowerCase();
+        const isAdditionalInfoStatus = itemStatus === 'additional info' || itemStatus === 'additional information';
+        
+        // Extract query reason from procedure description (text in parentheses like "(prev report)")
+        const extractQueryFromProcedure = (procedureText: string): string => {
+          const match = procedureText.match(/\(([^)]+)\)/);
+          if (match && match[1]) {
+            const text = match[1].trim().toLowerCase();
+            // Check if it's a query-related text
+            if (text.includes('prev') || text.includes('previous') || text.includes('report') || 
+                text.includes('result') || text.includes('info') || text.includes('document')) {
+              return match[1].trim();
+            }
+          }
+          return '';
+        };
+        
+        const queryFromProcedure = item.procedure ? extractQueryFromProcedure(item.procedure) : '';
+        
         // PRIORITY: Use existing reason/disallowance first, then queryReason, then additionalInfoRequired
         const itemReason = (item.reason ?? '').trim();
         const itemQueryReason = (item.queryReason?.trim() || queryReason || '').trim();
         
         // Reason priority: item-level reason → claim-level reason → additionalInfoRequired (fallback)
+        // BUT: If Status is "Additional Info", don't use it as reason (it's a query, not a denial)
         const finalReason = (() => {
+          // If Status is "Additional Info", clear reason (it's not a denial)
+          if (isAdditionalInfoStatus) {
+            return '';
+          }
           if (itemReason && itemReason !== '-') {
             return itemReason; // Keep existing reason/disallowance
           }
@@ -632,12 +756,21 @@ export async function processClaimAndQueryPDFs(
           return '';
         })();
         
-        // QueryReason priority: item-level queryReason → claim-level queryReason → additionalInfoRequired (fallback)
+        // QueryReason priority: Status="Additional Info" → item-level queryReason → procedure query → claim-level queryReason → additionalInfoRequired (fallback)
         const finalQueryReason = (() => {
+          // PRIORITY 1: If Status column shows "Additional Info", use that
+          if (isAdditionalInfoStatus) {
+            return 'Additional Info';
+          }
+          // PRIORITY 2: If procedure has query text in parentheses, use it
+          if (queryFromProcedure) {
+            return queryFromProcedure;
+          }
+          // PRIORITY 3: If item has queryReason, use it
           if (itemQueryReason && itemQueryReason !== '-') {
             return itemQueryReason; // Keep existing queryReason
           }
-          // Only use additionalInfoRequired as fallback if no queryReason exists
+          // PRIORITY 4: Only use additionalInfoRequired as fallback if no queryReason exists
           if (hasAdditionalInfo) {
             return additionalInfoRequired;
           }
@@ -647,14 +780,23 @@ export async function processClaimAndQueryPDFs(
         // Get approvedAmt for status determination
         const itemApprovedAmt = normalizeCurrencyValue(item.approvedAmt);
         
-        // CRITICAL: Status priority - approvedAmt takes PRIORITY
+        // CRITICAL: Status priority - Status="Additional Info" takes highest priority, then approvedAmt
+        // If Status column shows "Additional Info", it's Query Raised (regardless of approvedAmt)
         // If approvedAmt > 0, item is Approved (PDF shows approval, regardless of reason)
         // Only if approvedAmt === 0, then check reason/queryReason
         let finalReasonValue = finalReason;
         let finalQueryReasonValue = finalQueryReason;
         
         const finalStatus = (() => {
-          if (itemApprovedAmt > 0) {
+          // PRIORITY 0: If Status column shows "Additional Info", it's Query Raised
+          if (isAdditionalInfoStatus) {
+            // Keep queryReason, clear denial reason
+            finalReasonValue = '';
+            if (!finalQueryReasonValue) {
+              finalQueryReasonValue = 'Additional Info';
+            }
+            return 'Query Raised';
+          } else if (itemApprovedAmt > 0) {
             // PRIORITY 1: If approvedAmt > 0, item is Approved (PDF shows it was approved)
             // Clear reason and queryReason for approved items
             finalReasonValue = '';
@@ -714,14 +856,35 @@ export async function processClaimAndQueryPDFs(
       });
     }
     
+    // Calculate totalAmt as the sum of all item amounts from the claim form
+    const calculatedTotalAmt = claimResult.items?.reduce((sum, item) => sum + (item.amount || 0), 0) || claimResult.totalAmt || 0;
+    
+    // Calculate acceptedAmt as sum of all item approvedAmt values
+    const calculatedAcceptedAmt = mergedItems.reduce((sum, item) => {
+      const itemApprovedAmt = normalizeCurrencyValue(item.approvedAmt);
+      return sum + itemApprovedAmt;
+    }, 0);
+    
+    // Calculate deniedAmt as sum of amounts for items that are NOT approved (approvedAmt === 0)
+    const calculatedDeniedAmt = mergedItems.reduce((sum, item) => {
+      const itemApprovedAmt = normalizeCurrencyValue(item.approvedAmt);
+      const itemAmount = normalizeCurrencyValue(item.amount);
+      // If approvedAmt is 0, add the item's amount to deniedAmt
+      if (itemApprovedAmt === 0) {
+        return sum + itemAmount;
+      }
+      return sum;
+    }, 0);
+    
+    console.log(`[PDF_EXTRACTOR] Calculated totals - totalAmt: ${calculatedTotalAmt}, acceptedAmt: ${calculatedAcceptedAmt}, deniedAmt: ${calculatedDeniedAmt}`);
+    
     return {
       claimId: claimId || `CLM-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`,
       patientName,
       dateOfService: claimResult.dateOfService || new Date().toISOString().split('T')[0],
-      // Calculate totalAmt as the sum of all item amounts from the claim form
-      totalAmt: claimResult.items?.reduce((sum, item) => sum + (item.amount || 0), 0) || claimResult.totalAmt || 0,
-      acceptedAmt,
-      deniedAmt,
+      totalAmt: calculatedTotalAmt,
+      acceptedAmt: calculatedAcceptedAmt,
+      deniedAmt: calculatedDeniedAmt,
       items: mergedItems,
       // Approval status and reason come from query PDF (query PDF contains approval data)
       // Priority: status should reflect query if additionalInfoRequired exists
