@@ -3,52 +3,209 @@ import { mockClaims } from "@/data/mockClaims";
 import { ClaimsTable } from "@/components/dashboard/ClaimsTable";
 import { SearchFilters, FilterState } from "@/components/dashboard/SearchFilters";
 import { PDFUploader } from "@/components/dashboard/PDFUploader";
-import { FileBarChart } from "lucide-react";
+import { FileBarChart, Loader2 } from "lucide-react";
 import { Claim, TimelineEntry } from "@/types/claim";
+import { fetchAllClaims, saveClaims, updateClaim, deleteClaim } from "@/services/claimsService";
+import { useToast } from "@/hooks/use-toast";
+import { isSupabaseConfigured } from "@/lib/supabase";
 
 const STORAGE_KEY = 'pa-dashboard-claims';
+const MIGRATION_FLAG_KEY = 'pa-dashboard-migrated-to-supabase';
 
 const Index = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [filters, setFilters] = useState<FilterState>({});
-  const [claims, setClaims] = useState<Claim[]>(() => {
-    // Load from localStorage or use mock data as fallback
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try {
-        return JSON.parse(stored);
-      } catch (e) {
-        console.error('Error loading claims from storage:', e);
-      }
-    }
-    return mockClaims;
-  });
+  const [claims, setClaims] = useState<Claim[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
 
-  // Persist claims to localStorage whenever they change
+  // Load claims from Supabase on mount
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(claims));
-  }, [claims]);
+    const loadClaims = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
 
-  const handlePDFDataExtracted = (extractedClaims: Claim[]) => {
-    setClaims(extractedClaims);
+        // Check if Supabase is configured
+        if (!isSupabaseConfigured()) {
+          // Use localStorage if Supabase is not configured
+          const stored = localStorage.getItem(STORAGE_KEY);
+          if (stored) {
+            try {
+              const localClaims: Claim[] = JSON.parse(stored);
+              setClaims(localClaims);
+            } catch (e) {
+              console.error('Error parsing localStorage data:', e);
+              setClaims(mockClaims);
+            }
+          } else {
+            setClaims(mockClaims);
+          }
+          setIsLoading(false);
+          return;
+        }
+
+        // Check if we need to migrate from localStorage
+        const hasMigrated = localStorage.getItem(MIGRATION_FLAG_KEY);
+        if (!hasMigrated) {
+          const stored = localStorage.getItem(STORAGE_KEY);
+          if (stored) {
+            try {
+              const localClaims: Claim[] = JSON.parse(stored);
+              if (localClaims.length > 0) {
+                // Migrate localStorage data to Supabase
+                await saveClaims(localClaims);
+                localStorage.setItem(MIGRATION_FLAG_KEY, 'true');
+                toast({
+                  title: "Data migrated",
+                  description: "Your local data has been migrated to Supabase.",
+                });
+              }
+            } catch (e) {
+              console.error('Error parsing localStorage data:', e);
+            }
+          }
+          localStorage.setItem(MIGRATION_FLAG_KEY, 'true');
+        }
+
+        // Fetch claims from Supabase
+        const supabaseClaims = await fetchAllClaims();
+        
+        if (supabaseClaims.length > 0) {
+          setClaims(supabaseClaims);
+        } else {
+          // If no claims in Supabase, use mock data as fallback
+          setClaims(mockClaims);
+          // Optionally save mock data to Supabase
+          await saveClaims(mockClaims);
+        }
+      } catch (err) {
+        console.error('Error loading claims:', err);
+        setError('Failed to load claims. Please check your Supabase configuration.');
+        
+        // Fallback to localStorage if Supabase fails
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          try {
+            const localClaims: Claim[] = JSON.parse(stored);
+            setClaims(localClaims);
+            toast({
+              title: "Using local data",
+              description: "Could not connect to Supabase. Using local data as fallback.",
+              variant: "destructive",
+            });
+          } catch (e) {
+            console.error('Error loading from localStorage fallback:', e);
+            setClaims(mockClaims);
+          }
+        } else {
+          setClaims(mockClaims);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadClaims();
+  }, [toast]);
+
+  const handlePDFDataExtracted = async (extractedClaims: Claim[]) => {
+    try {
+      setClaims(extractedClaims);
+      
+      // Save to localStorage as fallback
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(extractedClaims));
+      
+      // Save to Supabase if configured
+      if (isSupabaseConfigured()) {
+        await saveClaims(extractedClaims);
+        toast({
+          title: "Claims saved",
+          description: "Claims have been saved to the database.",
+        });
+      }
+    } catch (err) {
+      console.error('Error saving claims:', err);
+      toast({
+        title: "Error saving claims",
+        description: "Failed to save claims to database. Changes are only local.",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleDeleteClaim = (claimId: string) => {
-    setClaims(prevClaims => prevClaims.filter(claim => claim.claimId !== claimId));
+  const handleDeleteClaim = async (claimId: string) => {
+    try {
+      // Optimistically update UI
+      const updatedClaims = claims.filter(claim => claim.claimId !== claimId);
+      setClaims(updatedClaims);
+      
+      // Update localStorage
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedClaims));
+      
+      // Delete from Supabase if configured
+      if (isSupabaseConfigured()) {
+        await deleteClaim(claimId);
+        toast({
+          title: "Claim deleted",
+          description: "Claim has been deleted from the database.",
+        });
+      }
+    } catch (err) {
+      console.error('Error deleting claim:', err);
+      // Reload claims to revert optimistic update
+      if (isSupabaseConfigured()) {
+        try {
+          const supabaseClaims = await fetchAllClaims();
+          setClaims(supabaseClaims);
+        } catch (reloadErr) {
+          console.error('Error reloading claims:', reloadErr);
+          // Fallback to localStorage
+          const stored = localStorage.getItem(STORAGE_KEY);
+          if (stored) {
+            try {
+              const localClaims: Claim[] = JSON.parse(stored);
+              setClaims(localClaims);
+            } catch (e) {
+              console.error('Error loading from localStorage:', e);
+            }
+          }
+        }
+      } else {
+        // Reload from localStorage
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          try {
+            const localClaims: Claim[] = JSON.parse(stored);
+            setClaims(localClaims);
+          } catch (e) {
+            console.error('Error loading from localStorage:', e);
+          }
+        }
+      }
+      toast({
+        title: "Error deleting claim",
+        description: "Failed to delete claim from database.",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleClaimAction = (
+  const handleClaimAction = async (
     claimId: string,
     action: "approve" | "query" | "deny" | "delete" | "sendToDoctor" | "sendToMedicalRecords" | "requestDocuments",
     comment?: string,
     itemCode?: string
   ) => {
     if (action === 'delete') {
-      handleDeleteClaim(claimId);
+      await handleDeleteClaim(claimId);
       return;
     }
-    setClaims((prevClaims) =>
-      prevClaims.map((claim) => {
+
+    try {
+      // Optimistically update UI
+      const updatedClaims = claims.map((claim) => {
         if (claim.claimId !== claimId) return claim;
 
         const now = new Date().toISOString();
@@ -144,8 +301,35 @@ const Index = () => {
         updatedClaim.deniedAmt = Math.max(totalAmt - acceptedAmt, 0);
 
         return updatedClaim;
-      })
-    );
+      });
+
+      setClaims(updatedClaims);
+
+      // Update localStorage
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedClaims));
+
+      // Find the updated claim and save to Supabase if configured
+      if (isSupabaseConfigured()) {
+        const updatedClaim = updatedClaims.find(c => c.claimId === claimId);
+        if (updatedClaim) {
+          await updateClaim(updatedClaim);
+        }
+      }
+    } catch (err) {
+      console.error('Error updating claim:', err);
+      // Reload claims to revert optimistic update
+      try {
+        const supabaseClaims = await fetchAllClaims();
+        setClaims(supabaseClaims);
+      } catch (reloadErr) {
+        console.error('Error reloading claims:', reloadErr);
+      }
+      toast({
+        title: "Error updating claim",
+        description: "Failed to update claim in database.",
+        variant: "destructive",
+      });
+    }
   };
 
   const filteredClaims = claims.filter((claim) => {
@@ -190,6 +374,17 @@ const Index = () => {
   const acceptedAmount = filteredClaims.reduce((sum, c) => sum + c.acceptedAmt, 0);
   const deniedAmount = filteredClaims.reduce((sum, c) => sum + c.deniedAmt, 0);
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+          <p className="text-muted-foreground">Loading claims...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto p-6 space-y-6">
@@ -207,6 +402,13 @@ const Index = () => {
             </p>
           </div>
         </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+            <p className="text-sm text-destructive">{error}</p>
+          </div>
+        )}
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

@@ -59,6 +59,56 @@ This project is built with:
 - React
 - shadcn-ui
 - Tailwind CSS
+- Supabase (for data persistence)
+
+## Supabase Setup
+
+This project uses Supabase for persistent data storage. Follow these steps to set it up:
+
+### 1. Create a Supabase Project
+
+1. Go to [Supabase](https://app.supabase.com) and sign in
+2. Create a new project
+3. Wait for the project to be fully provisioned
+
+### 2. Get Your API Keys
+
+1. In your Supabase project, go to **Settings** > **API**
+2. Copy your **Project URL** and **anon/public key**
+
+### 3. Set Up Environment Variables
+
+1. Create a `.env` file in the root directory (copy from `.env.example` if it exists)
+2. Add the following variables:
+
+```env
+VITE_SUPABASE_URL=your_supabase_project_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
+
+Replace `your_supabase_project_url` and `your_supabase_anon_key` with the values from step 2.
+
+### 4. Run Database Migration
+
+1. In your Supabase project, go to **SQL Editor**
+2. Open the file `supabase/migrations/001_initial_schema.sql`
+3. Copy the entire SQL content
+4. Paste it into the SQL Editor in Supabase
+5. Click **Run** to execute the migration
+
+This will create the necessary tables:
+- `claims` - Main claims table
+- `claim_items` - Individual claim items
+- `claim_documents` - Claim documents
+- `chart_configurations` - Chart configuration storage
+
+### 5. Verify Setup
+
+1. Start the development server: `npm run dev`
+2. The app will automatically migrate any existing localStorage data to Supabase on first load
+3. Check the Supabase dashboard to verify data is being stored
+
+**Note:** If Supabase is not configured, the app will fall back to localStorage with a warning message.
 
 ## How can I deploy this project?
 
